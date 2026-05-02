@@ -1,0 +1,6 @@
+.env
+honda.db
+log/
+*.exe
+tmp/
+scratch/

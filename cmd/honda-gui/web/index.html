@@ -1,0 +1,1599 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Honda Go</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="top-left">
+      <button type="button" class="menu-toggle" onclick="toggleSidebar()" title="Expandir ou recolher menu">&#9776;</button>
+      <div class="brand-head">
+        <span class="honda">Honda</span>
+        <span class="go">Go</span>
+      </div>
+    </div>
+    <div class="title">
+      <h1>Reserva de Cotas</h1>
+      <p>Fluxo operacional com filtros, loteria federal e envio para API.</p>
+    </div>
+    <div class="top-actions">
+      <div id="status" title="Clique para ver detalhes completos">Status: Pronto</div>
+      <div class="user-menu-wrap">
+        <button type="button" class="user-chip" onclick="toggleUserMenu()" aria-label="Menu do usuário">
+          <span class="user-avatar-ico">&#128100;</span>
+          <span>Olá, Idelfonso</span>
+        </button>
+        <div id="userMenu" class="user-menu hidden">
+          <button type="button" class="user-menu-item" onclick="openPage('config'); closeUserMenu();">Configuração</button>
+          <button type="button" class="user-menu-item" onclick="openMFASetupModal(); closeUserMenu();">Seguran&ccedil;a (MFA)</button>
+          <button type="button" class="user-menu-item" onclick="logoutAppUser()">Sair</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="mobile-overlay" onclick="closeSidebarMobile()"></div>
+
+  <div class="app-shell">
+    <aside class="sidebar">
+      <nav class="nav">
+        <div id="nav-dashboard" class="nav-item active" data-page-link="dashboard" onclick="openPage('dashboard'); closeSidebarMobile();">
+          <span class="nav-ico">&#9728;</span>
+          <span class="nav-label">Dashboard</span>
+        </div>
+        <div id="nav-reservas" class="nav-item" data-page-link="reservas" onclick="openPage('reservas'); closeSidebarMobile();">
+          <span class="nav-ico">&#9638;</span>
+          <span class="nav-label">Painel de Reservas</span>
+        </div>
+        <div id="nav-monitor" class="nav-item" onclick="openMonitoringModal(); closeSidebarMobile();">
+          <span class="nav-ico">&#9716;</span>
+          <span class="nav-label">Monitoramento</span>
+        </div>
+        <div id="nav-logs" class="nav-item" onclick="openDiagnosticsModal(); closeSidebarMobile();">
+          <span class="nav-ico">&#9776;</span>
+          <span class="nav-label">Logs e Diagnóstico</span>
+        </div>
+        <div id="nav-config" class="nav-item" data-page-link="config" onclick="openPage('config'); closeSidebarMobile();">
+          <span class="nav-ico">&#9881;</span>
+          <span class="nav-label">Configuração</span>
+        </div>
+      </nav>
+
+      <div class="sidebar-footer">Engine em Go - v1</div>
+    </aside>
+
+    <main class="main">
+      <section class="content page" id="page-dashboard">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Dashboard</h2>
+              <p>Visão executiva das solicitações e atendimentos.</p>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="dash-filters">
+              <div class="field">
+                <label>Data Inicial</label>
+                <input id="dash_from" type="date" />
+              </div>
+              <div class="field">
+                <label>Data Final</label>
+                <input id="dash_to" type="date" />
+              </div>
+              <div class="field">
+                <label>Filial</label>
+                <select id="dash_filial">
+                  <option value="">Todas</option>
+                </select>
+              </div>
+              <div style="display:flex; align-items:flex-end;">
+                <button class="btn" title="Buscar" aria-label="Buscar" onclick="loadDashboard()">
+                  <span class="btn-ico" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" focusable="false">
+                      <circle cx="11" cy="11" r="7"></circle>
+                      <path d="M20 20l-3.5-3.5"></path>
+                    </svg>
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            <div class="dash-grid-cards">
+              <div class="dash-card" onclick="openDashboardDetails('total')"><div class="k" title="Quantidade total de solicitações no período e filtros selecionados.">Solicitações</div><div class="v" id="dash_total">0</div><div class="d" id="dash_total_delta"></div></div>
+              <div class="dash-card" onclick="openDashboardDetails('atendidas')"><div class="k" title="Solicitações marcadas como atendidas no período e filtros selecionados.">Atendidas</div><div class="v" id="dash_atendidas">0</div><div class="d" id="dash_atendidas_delta"></div></div>
+              <div class="dash-card" onclick="openDashboardDetails('nao_atendidas')"><div class="k" title="Solicitações ainda não atendidas no período e filtros selecionados.">Não Atendidas</div><div class="v" id="dash_nao_atendidas">0</div><div class="d" id="dash_nao_atendidas_delta"></div></div>
+              <div class="dash-card" id="dash_card_taxa"><div class="k" title="Percentual de solicitações atendidas em relação ao total do período filtrado.">Taxa Atendimento</div><div class="v" id="dash_taxa">0%</div><div class="d" id="dash_taxa_delta"></div></div>
+              <div class="dash-card"><div class="k" title="Tempo médio (em minutos) entre solicitação e atendimento.">SLA Médio (min)</div><div class="v" id="dash_sla">0</div><div class="d" id="dash_sla_delta"></div></div>
+              <div class="dash-card"><div class="k" title="Média do percentual de lance informado nas solicitações do período.">Lance Médio</div><div class="v" id="dash_lance">0%</div><div class="d" id="dash_lance_delta"></div></div>
+              <div class="dash-card"><div class="k" title="Tempo decorrido desde a última solicitação atendida (saúde operacional).">ÃƒÆ’Ã…Â¡ltima Atendida</div><div class="v" id="dash_ultima_delta">--</div><div class="d" id="dash_ultima_em"></div></div>
+            </div>
+
+            <div class="dash-layout">
+              <div class="dash-box">
+                <h4>Evolução por Dia (últimos 14)</h4>
+                <div id="dash_series" class="dash-bars"></div>
+              </div>
+              <div class="dash-box">
+                <h4>Evolução por Hora</h4>
+                <div id="dash_series_hour" class="dash-bars"></div>
+              </div>
+              <div class="dash-box">
+                <h4>Filiais com Mais Solicitações</h4>
+                <table class="dash-mini-table">
+                  <thead><tr><th>Filial</th><th>Total</th><th>Atendidas</th><th>Taxa</th></tr></thead>
+                  <tbody id="dash_filiais"></tbody>
+                </table>
+              </div>
+              <div class="dash-box">
+                <h4>Vendedores com Mais Solicitações</h4>
+                <table class="dash-mini-table">
+                  <thead><tr><th>Vendedor</th><th>Total</th><th>Atendidas</th><th>Taxa</th></tr></thead>
+                  <tbody id="dash_vendedores"></tbody>
+                </table>
+              </div>
+              <div class="dash-box">
+                <h4>Vendedores por Taxa de Atendimento</h4>
+                <table class="dash-mini-table">
+                  <thead><tr><th>Vendedor</th><th>Total</th><th>Atendidas</th><th>Taxa</th></tr></thead>
+                  <tbody id="dash_vendedores_taxa"></tbody>
+                </table>
+              </div>
+              <div class="dash-box">
+                <h4>Grupos Mais Atendidos</h4>
+                <table class="dash-mini-table">
+                  <thead><tr><th>Grupo</th><th>Qtd.</th></tr></thead>
+                  <tbody id="dash_grupos"></tbody>
+                </table>
+              </div>
+              <div class="dash-box">
+                <h4>Filiais com Maior Backlog</h4>
+                <table class="dash-mini-table">
+                  <thead><tr><th>Filial</th><th>Em Aberto</th></tr></thead>
+                  <tbody id="dash_filiais_backlog"></tbody>
+                </table>
+              </div>
+              <div class="dash-box api-health">
+                <h4>Saúde da API (sessão atual)</h4>
+                <div class="api-health-grid">
+                  <div class="api-health-item"><div class="k">Latência Média</div><div class="v" id="dash_api_latency">0 ms</div></div>
+                  <div class="api-health-item"><div class="k">Timeouts</div><div class="v" id="dash_api_timeout">0</div></div>
+                  <div class="api-health-item"><div class="k">HTTP 4xx</div><div class="v" id="dash_api_4xx">0</div></div>
+                  <div class="api-health-item"><div class="k">HTTP 5xx</div><div class="v" id="dash_api_5xx">0</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <section class="content page hidden" id="page-reservas">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Painel de Reservas</h2>
+              <p>Solicita&ccedil;&otilde;es, cotas reservadas e configura&ccedil;&atilde;o da reserva.</p>
+            </div>
+          </div>
+
+          <div class="panel-body">
+            <div class="config-sections">
+              <button type="button" class="config-tab active" data-reserve-tab="solicitacoes" onclick="openReserveSection('solicitacoes')">Solicita&ccedil;&otilde;es</button>
+              <button type="button" class="config-tab" data-reserve-tab="minhas" onclick="openReserveSection('minhas')">Minhas Reservas</button>
+              <button type="button" class="config-tab" data-reserve-tab="reserved" onclick="openReserveSection('reserved')">Cotas Reservadas</button>
+              <button type="button" class="config-tab" data-reserve-tab="mensagens" onclick="openReserveSection('mensagens')">Mensagens</button>
+              <button type="button" class="config-tab" data-reserve-tab="config" onclick="openReserveSection('config')">Configura&ccedil;&atilde;o de Reserva</button>
+              <button type="button" class="config-tab" data-reserve-tab="solicitar" onclick="openReserveSection('solicitar')">Solicitar Cota</button>
+            </div>
+
+            <section id="reserve-solicitacoes" class="reserve-section">
+              <div class="auth-search-row sol-search-row">
+                <div class="field">
+                  <label>Data Inicial</label>
+                  <input id="sol_from" type="date" />
+                </div>
+                <div class="field">
+                  <label>Data Final</label>
+                  <input id="sol_to" type="date" />
+                </div>
+                <div class="field">
+                  <label>Coluna da Busca</label>
+                  <select id="sol_search_column">
+                    <option value="">Global (todas)</option>
+                    <option value="id">ID</option>
+                    <option value="branch">Filial</option>
+                    <option value="seller_name">Vendedor</option>
+                    <option value="cpf">CPF</option>
+                    <option value="model_name">Modelo</option>
+                    <option value="plan">Licenciado</option>
+                    <option value="installments">Parcelas</option>
+                    <option value="bid_percent">Lance</option>
+                    <option value="with_restriction">Restri&ccedil;&atilde;o</option>
+                    <option value="group_code">Grupo</option>
+                    <option value="notes">Observa&ccedil;&atilde;o</option>
+                    <option value="served_group">Gr. Atendido</option>
+                    <option value="requested_quota_id">ID Cota</option>
+                    <option value="quota_rd">Cota R/D</option>
+                    <option value="status">Situa&ccedil;&atilde;o</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Situa&ccedil;&atilde;o</label>
+                  <select id="sol_status_filter">
+                    <option value="pending" selected>Pendentes</option>
+                    <option value="attended">Atendidas</option>
+                    <option value="all">Todas</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Pesquisar solicita&ccedil;&atilde;o (qualquer coluna)</label>
+                  <input id="solicitacao_search" placeholder="Ex: 62904808, 172, 00025, 1, etc." />
+                </div>
+                <div style="display:flex; align-items:flex-end;">
+                  <button class="btn search-icon-btn" data-iconified="1" title="Buscar" aria-label="Buscar" onclick="searchSolicitacoes()">
+                    <span class="btn-ico" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" focusable="false">
+                        <circle cx="11" cy="11" r="7"></circle>
+                        <path d="M20 20l-3.5-3.5"></path>
+                      </svg>
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="auth-toolbar">
+                <button class="btn btn-execute" onclick="reserveSelectedSolicitacoes()">Reservar Selecionadas</button>
+                <button class="btn" onclick="openSolicitacaoCreateModal()">Nova Solicita&ccedil;&atilde;o</button>
+              </div>
+
+              <div class="auth-table-wrap">
+                <table class="auth-table sol-table">
+                  <colgroup>
+                    <col style="width: 34px;" />
+                    <col style="width: 5ch;" />
+                    <col style="width: 8ch;" />
+                    <col style="width: 20ch;" />
+                    <col style="width: 13ch;" />
+                    <col style="width: 19ch;" />
+                    <col style="width: 14ch;" />
+                    <col style="width: 6ch;" />
+                    <col style="width: 6ch;" />
+                    <col style="width: 6ch;" />
+                    <col style="width: 7ch;" />
+                    <col style="width: 8ch;" />
+                    <col style="width: 6ch;" />
+                    <col style="width: 14ch;" />
+                    <col style="width: 10ch;" />
+                    <col style="width: 16ch;" />
+                    <col style="width: 14ch;" />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th><input type="checkbox" id="sol_select_all" onchange="toggleSelectAllSolicitacoes()" /></th>
+                      <th>ID</th>
+                      <th>Filial</th>
+                      <th>Vendedor</th>
+                      <th>CPF</th>
+                      <th>Modelo</th>
+                      <th>Solicitado</th>
+                      <th>Placa</th>
+                      <th>Parc</th>
+                      <th>Lance</th>
+                      <th>Rest</th>
+                      <th>Grupo</th>
+                      <th>Qtd</th>
+                      <th>Observa&ccedil;&atilde;o</th>
+                      <th>ID Cota</th>
+                      <th>Grupo-Cota-R/D</th>
+                      <th>A&ccedil;&otilde;es</th>
+                    </tr>
+                  </thead>
+                  <tbody id="solicitacaoTableBody">
+                    <tr><td colspan="17">Sem resultados. Fa&ccedil;a uma busca.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section id="reserve-minhas" class="reserve-section hidden">
+              <div class="auth-search-row my-sol-search-row">
+                <div class="field">
+                  <label>Data Inicial</label>
+                  <input id="my_sol_from" type="date" />
+                </div>
+                <div class="field">
+                  <label>Data Final</label>
+                  <input id="my_sol_to" type="date" />
+                </div>
+                <div class="field">
+                  <label>Situa&ccedil;&atilde;o</label>
+                  <select id="my_sol_status_filter">
+                    <option value="atendida" selected>Atendida</option>
+                    <option value="digitada">Digitada</option>
+                    <option value="expirada">Expirada</option>
+                    <option value="solicitada">Solicitada</option>
+                    <option value="all">Todas</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Pesquisar (id, modelo, grupo, cota r/d)</label>
+                  <input id="my_solicitacao_search" placeholder="Ex: 1024, POP, 47425, 310-1-1" />
+                </div>
+                <div style="display:flex; align-items:flex-end;">
+                  <button class="btn search-icon-btn" data-iconified="1" title="Buscar" aria-label="Buscar" onclick="searchMinhasSolicitacoes()">
+                    <span class="btn-ico" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" focusable="false">
+                        <circle cx="11" cy="11" r="7"></circle>
+                        <path d="M20 20l-3.5-3.5"></path>
+                      </svg>
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="auth-table-wrap">
+                <table class="auth-table ga-table my-reservas-table">
+                  <colgroup>
+                    <col style="width: 7ch;" />
+                    <col style="width: 8ch;" />
+                    <col style="width: 14ch;" />
+                    <col style="width: 13ch;" />
+                    <col style="width: 15ch;" />
+                    <col style="width: 18ch;" />
+                    <col style="width: 15ch;" />
+                    <col style="width: 9ch;" />
+                    <col style="width: 12ch;" />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Filial</th>
+                      <th>Vendedor</th>
+                      <th>Modelo</th>
+                      <th>Solicitado</th>
+                      <th>Grupo Cota R/D</th>
+                      <th>Atendida</th>
+                      <th>SLA</th>
+                      <th>Situa&ccedil;&atilde;o</th>
+                    </tr>
+                  </thead>
+                  <tbody id="mySolicitacaoTableBody">
+                    <tr><td colspan="9">Sem resultados. Fa&ccedil;a uma busca.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section id="reserve-solicitar" class="reserve-section hidden">
+              <div class="field-grid">
+                <div class="field"><label>CPF</label><input id="request_cpf" oninput="autoFillSolicitacaoByCPF()" /></div>
+                <div class="field"><label>Filial</label><input id="request_filial" /></div>
+                <div class="field"><label>Data/Hora Solicita&ccedil;&atilde;o</label><input id="request_data_hora_solicitacao" /></div>
+                <div class="field"><label>Vendedor</label><input id="request_vendedor" /></div>
+                <div class="field"><label>Modelo</label>
+                  <select id="request_modelo">
+                    <option value="">Selecione o modelo</option>
+                  </select>
+                </div>
+                <div class="field"><label>Licenciado</label><select id="request_plano"><option value="N&atilde;o" selected>N&atilde;o</option><option value="Sim">Sim</option></select></div>
+                <div class="field"><label>Grupo</label><input id="request_grupo" onblur="autoFillSolicitacaoByGroup('request')" /></div>
+                <div class="field"><label>Qtde Parcelas</label><input id="request_qtde_parcelas" /></div>
+                <div class="field"><label>Perc. Lance</label><input id="request_perc_lance" /></div>
+                <div class="field"><label>Com Restri&ccedil;&atilde;o</label><select id="request_com_restricao"><option value="N&atilde;o" selected>N&atilde;o</option><option value="Sim">Sim</option></select></div>
+                <div class="field full"><label>Observa&ccedil;&atilde;o</label><input id="request_observacao" /></div>
+              </div>
+              <div class="form-footer">
+                <button class="btn" onclick="clearSolicitarCotaForm()">Limpar</button>
+                <button class="btn btn-execute" onclick="saveSolicitarCota()">Solicitar Cota</button>
+              </div>
+            </section>
+
+            <section id="reserve-reserved" class="reserve-section hidden">
+              <div class="auth-search-row reserved-search-row">
+                <div class="field">
+                  <label>Data Inicial</label>
+                  <input id="reserved_from" type="date" />
+                </div>
+                <div class="field">
+                  <label>Data Final</label>
+                  <input id="reserved_to" type="date" />
+                </div>
+                <div class="field">
+                  <label>Pesquisar cotas reservadas (qualquer coluna)</label>
+                  <input id="reserved_search" placeholder="Ex: ID, usu&aacute;rio, CPF, grupo, cota, modelo, reposi&ccedil;&atilde;o" />
+                </div>
+                <div style="display:flex; align-items:flex-end;">
+                  <button class="btn search-icon-btn" data-iconified="1" title="Buscar" aria-label="Buscar" onclick="searchReservedCotas()">
+                    <span class="btn-ico" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" focusable="false">
+                        <circle cx="11" cy="11" r="7"></circle>
+                        <path d="M20 20l-3.5-3.5"></path>
+                      </svg>
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="auth-toolbar">
+                <button class="btn" onclick="deleteSelectedReservedCotas()">Deletar Selecionados</button>
+              </div>
+
+              <div class="auth-table-wrap">
+                <table class="auth-table ga-table cotas-reservadas-table">
+                  <colgroup>
+                    <col style="width: 34px;" />
+                    <col style="width: 8ch;" />
+                    <col style="width: 13ch;" />
+                    <col style="width: 12ch;" />
+                    <col style="width: 14ch;" />
+                    <col style="width: 10ch;" />
+                    <col style="width: 16ch;" />
+                    <col style="width: 15ch;" />
+                    <col style="width: 8ch;" />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th><input type="checkbox" id="reserved_select_all" onchange="toggleSelectAllReserved()" /></th>
+                      <th>ID</th>
+                      <th>Usu&aacute;rio Reserva</th>
+                      <th>CPF/CNPJ</th>
+                      <th>Cod. Modelo</th>
+                      <th>ID Cota</th>
+                      <th>Grupo-Cota-r-d</th>
+                      <th>Data Reserva</th>
+                      <th>A&ccedil;&otilde;es</th>
+                    </tr>
+                  </thead>
+                  <tbody id="reservedTableBody">
+                    <tr><td colspan="9">Sem resultados. Fa&ccedil;a uma busca.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section id="reserve-mensagens" class="reserve-section hidden">
+              <div class="auth-search-row msg-search-row">
+                <div class="field">
+                  <label>Data Inicial</label>
+                  <input id="msg_from" type="date" />
+                </div>
+                <div class="field">
+                  <label>Data Final</label>
+                  <input id="msg_to" type="date" />
+                </div>
+                <div class="field">
+                  <label>Status</label>
+                  <select id="msg_status">
+                    <option value="pendente" selected>Pendentes</option>
+                    <option value="copiada">Copiadas</option>
+                    <option value="enviada_manual">Enviadas Manualmente</option>
+                    <option value="all">Todas</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Pesquisar mensagens (id, solicitaÃ§Ã£o, vendedor, cpf, filial, texto)</label>
+                  <input id="msg_search" placeholder="Ex: 12, 1024, Manoel, 05722137359, TER" />
+                </div>
+                <div style="display:flex; align-items:flex-end;">
+                  <button class="btn search-icon-btn" data-iconified="1" title="Buscar" aria-label="Buscar" onclick="searchManualNotifications()">
+                    <span class="btn-ico" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" focusable="false">
+                        <circle cx="11" cy="11" r="7"></circle>
+                        <path d="M20 20l-3.5-3.5"></path>
+                      </svg>
+                    </span>
+                  </button>
+                </div>
+              </div>
+              <div class="auth-toolbar">
+                <button class="btn" onclick="copySelectedManualNotifications()">Copiar Selecionadas</button>
+                <button class="btn" onclick="markSelectedManualNotificationsSent()">Marcar Enviadas Manualmente</button>
+              </div>
+              <div class="auth-table-wrap">
+                <table class="auth-table ga-table">
+                  <thead>
+                    <tr>
+                      <th><input type="checkbox" id="msg_select_all" onchange="toggleSelectAllManualNotifications()" /></th>
+                      <th>ID</th>
+                      <th>SolicitaÃƒÂ§ÃƒÂ£o</th>
+                      <th>Vendedor</th>
+                      <th>Filial</th>
+                      <th>CPF</th>
+                      <th>channel</th>
+                      <th>Status</th>
+                      <th>Criada</th>
+                      <th>Copiada</th>
+                      <th>Enviada</th>
+                      <th>message</th>
+                      <th>AÃƒÂ§ÃƒÂµes</th>
+                    </tr>
+                  </thead>
+                  <tbody id="msgTableBody">
+                    <tr><td colspan="13">Sem resultados. FaÃƒÂ§a uma busca.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section id="reserve-config" class="reserve-section hidden">
+              <div class="config-row">
+                <div class="field">
+                  <label>Arquivo config.ini</label>
+                  <input id="config_path" value="config.ini" />
+                </div>
+                <div style="display:flex; align-items:flex-end;">
+                  <button class="btn" onclick="loadConfig()">Atualizar</button>
+                </div>
+              </div>
+
+              <div class="field-grid">
+                <div class="field"><label>Modo</label><select id="reservar_modo"><option>b1</option><option>b4</option></select></div>
+                <div class="field"><label>Modelo</label><input id="model_name" placeholder="Ex: 1460" /></div>
+                <div class="field"><label>Produto</label><input id="produto" placeholder="Ex: 172" /></div>
+                <div class="field"><label>Grupo</label><input id="group_code" placeholder="Ex: 47425" /></div>
+                <div class="field"><label>ID Cota</label><input id="requested_quota_id" placeholder="Ex: 62134615" /></div>
+                <div class="field"><label>Tipo Grupo</label><input id="group_type" /></div>
+                <div class="field"><label>CPF</label><input id="cpf" /></div>
+                <div class="field"><label>C&oacute;d. Empresa</label><input id="cod_empre" /></div>
+                <div class="field"><label>Vencimento</label><input id="due_day" /></div>
+                <div class="field field-alert"><label>Limite</label><input id="limit" /></div>
+                <div class="field field-alert"><label>Loteria Federal</label><input id="federal_lottery" /></div>
+                <div class="field field-alert"><label>Acr&eacute;sc./Decr.</label><input id="acrescimo_decrescimo" /></div>
+                <div class="field field-alert"><label>Intervalo por Usu&aacute;rio (ms)</label><input id="cooldown_user_ms" /></div>
+                <div class="field field-alert"><label>Processos Paralelos</label><input id="worker_count_go" /></div>
+                <div class="field full field-alert"><label>Tempo Limite da Requisi&ccedil;&atilde;o (ms)</label><input id="request_timeout_ms" /></div>
+                <div class="field full">
+                  <label style="color: var(--primary); font-weight: 700;">Execu&ccedil;&atilde;o</label>
+                  <div class="check-wrap check-alert"><input type="checkbox" id="dry_run" /> Teste (dry_run)</div>
+                </div>
+              </div>
+
+              <div class="form-footer">
+                <button class="btn" onclick="saveConfig()">Salvar</button>
+                <button class="btn btn-execute" onclick="runEngine()">Executar</button>
+                <button class="btn" onclick="stopEngine()">Parar</button>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <aside class="panel log-panel hidden" id="reserve-log-panel">
+          <div class="panel-head">
+            <div>
+              <h2>Console de Execução</h2>
+              <p>Eventos em tempo real da rotina e retorno da API.</p>
+            </div>
+            <button class="btn" onclick="clearLogs()">Limpar</button>
+          </div>
+          <pre id="logs"></pre>
+        </aside>
+      </section>
+
+      <section class="content page hidden" id="page-config">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Configuração</h2>
+              <p>Gerencie usuários e pará¢metros de banco de dados.</p>
+            </div>
+          </div>
+
+          <div class="panel-body">
+            <div class="config-sections">
+              <button type="button" class="config-tab active" data-config-tab="idsgrupos" onclick="openConfigSection('idsgrupos')">Ids Grupos Disponíveis</button>
+              <button type="button" class="config-tab" data-config-tab="users" onclick="openConfigSection('users')">Configurações de Usuário</button>
+              <button type="button" class="config-tab" data-config-tab="appusers" onclick="openConfigSection('appusers')">Usuários do Sistema</button>
+              <button type="button" class="config-tab" data-config-tab="rbac" onclick="openConfigSection('rbac')">Controle de Acessos</button>
+              <button type="button" class="config-tab" data-config-tab="audit" onclick="openConfigSection('audit')">Auditoria</button>
+              <button type="button" class="config-tab" data-config-tab="active_groups" onclick="openConfigSection('active_groups')">Grupos Ativos</button>
+              <button type="button" class="config-tab" data-config-tab="assemblies" onclick="openConfigSection('assemblies')">Assembleia</button>
+              <button type="button" class="config-tab" data-config-tab="models" onclick="openConfigSection('models')">Modelos</button>
+              <button type="button" class="config-tab" data-config-tab="produtos" onclick="openConfigSection('produtos')">Produtos</button>
+              <button type="button" class="config-tab" data-config-tab="database" onclick="openConfigSection('database')">Configurações de Banco de Dados</button>
+            </div>
+
+            
+            <section id="config-rbac" class="config-section hidden">
+              <div class="auth-toolbar">
+                 <h3>Matriz de Permissões (RBAC)</h3>
+                 <p>Controle o acesso de cada perfil do sistema clicando em Editar para habilitar ou desabilitar permissões específicas.</p>
+              </div>
+              <div class="auth-table-wrap" style="margin-top:15px;">
+                <table class="auth-table" id="rbac-table">
+                  <thead id="rbac-thead">
+                    <tr>
+                      <th>Perfil</th>
+                      <th style="width: 100px;">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody id="rbac-tbody">
+                  </tbody>
+                </table>
+              </div>
+            </section>
+            
+            <section id="config-audit" class="config-section hidden">
+              <div class="auth-toolbar">
+                 <h3>Trilha de Auditoria</h3>
+                 <p>Histórico de ações administrativas realizadas no sistema.</p>
+                 <button class="btn" style="margin-top: 10px;" onclick="loadAuditLogs()">Atualizar</button>
+              </div>
+              <div class="auth-search-row" style="margin-top: 10px;">
+                <div class="field">
+                  <label>Filtrar logs</label>
+                  <input type="text" id="audit_search" placeholder="Ex: admin, UPDATE_RBAC, roles" onkeyup="if(event.key==='Enter') loadAuditLogs()" />
+                </div>
+              </div>
+              <div class="auth-table-wrap" style="margin-top:15px; max-height: 500px; overflow-y: auto;">
+                <table class="auth-table ga-table">
+                  <thead>
+                    <tr>
+                      <th style="width: 19ch;">Data/Hora</th>
+                      <th style="width: 12ch;">Usuário</th>
+                      <th style="width: 14ch;">Ação</th>
+                      <th style="width: 10ch;">Entidade</th>
+                      <th style="width: 8ch;">ID</th>
+                      <th>Detalhes</th>
+                    </tr>
+                  </thead>
+                  <tbody id="audit_tbody">
+                    <tr><td colspan="6">Carregando logs...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section id="config-appusers" class="config-section hidden">
+              <div class="auth-search-row">
+                <div class="field">
+                  <label>Pesquisar usuÃ¡rio do sistema (id, username, nome, cpf, filial, email, perfil)</label>
+                  <input id="appuser_search" placeholder="Ex: 1, admin, idelfonso, 11888140879, BAR, administrador@empresa.com" />
+                </div>
+                <div style="display:flex; align-items:flex-end;">
+                  <button class="btn search-icon-btn" data-iconified="1" title="Buscar" aria-label="Buscar" onclick="searchAppUsers()">
+                    <span class="btn-ico" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" focusable="false">
+                        <circle cx="11" cy="11" r="7"></circle>
+                        <path d="M20 20l-3.5-3.5"></path>
+                      </svg>
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="auth-toolbar">
+                <button class="btn" onclick="openAppUserCreateModal()">Novo Usuário</button>
+              </div>
+
+              <div class="auth-table-wrap">
+                <table class="auth-table ga-table appuser-table">
+                  <colgroup>
+                    <col style="width: 6ch;" />
+                    <col style="width: 12ch;" />
+                    <col style="width: 16ch;" />
+                    <col style="width: 12ch;" />
+                    <col style="width: 8ch;" />
+                    <col style="width: 25ch;" />
+                    <col style="width: 15ch;" />
+                    <col style="width: 10ch;" />
+                    <col style="width: 7ch;" />
+                    <col style="width: 16ch;" />
+                    <col style="width: 12ch;" />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Username</th>
+                      <th>Nome</th>
+                      <th>CPF</th>
+                      <th>Filial</th>
+                      <th>Email</th>
+                      <th>Telefone</th>
+                      <th>Perfil</th>
+                      <th>Ativo</th>
+                      <th>&Uacute;ltimo Login</th>
+                      <th>Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody id="appuserTableBody">
+                    <tr><td colspan="11">Sem resultados. Faça uma busca.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section id="config-users" class="config-section">
+              <div class="auth-search-row">
+                <div class="field">
+                  <label>Pesquisar usuário (id, cpf, usuário, Cod. Empresa)</label>
+                  <input id="auth_search" placeholder="Ex: 1, 05722137359, DENILSON ou 1018124" />
+                </div>
+                <div style="display:flex; align-items:flex-end;">
+                  <button class="btn search-icon-btn" data-iconified="1" title="Buscar" aria-label="Buscar" onclick="searchAuthUsers()">
+                    <span class="btn-ico" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" focusable="false">
+                        <circle cx="11" cy="11" r="7"></circle>
+                        <path d="M20 20l-3.5-3.5"></path>
+                      </svg>
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="auth-toolbar">
+                <button class="btn" onclick="openAuthCreateModal()">Novo Usuário</button>
+                <button class="btn" onclick="authenticateSelectedUsers()">Autenticar Selecionados</button>
+                <button class="btn" onclick="reportUnauthenticatedUsers()">Não Autenticados</button>
+              </div>
+
+              <div class="auth-table-wrap" id="idsgTableWrap">
+                <table class="auth-table">
+                  <thead>
+                    <tr>
+                      <th><input type="checkbox" id="auth_select_all" onchange="toggleSelectAllAuth()" /></th>
+                      <th>ID</th>
+                      <th>Cod. Empresa</th>
+                      <th>CPF</th>
+                      <th>Usuário</th>
+                      <th>Senha</th>
+                      <th>Token</th>
+                      <th>Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody id="authTableBody">
+                    <tr><td colspan="8">Sem resultados. Faça uma busca.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section id="config-active_groups" class="config-section hidden">
+              <div class="auth-search-row idsg-search-row">
+                <div class="field">
+                  <label>Coluna da Busca</label>
+                  <select id="ga_search_column">
+                    <option value="">Global (todas)</option>
+                    <option value="id">ID</option>
+                    <option value="group_code">Grupo</option>
+                    <option value="due_day">Vencimento</option>
+                    <option value="participants_count">Participantes</option>
+                    <option value="first_assembly_date">Data Assembleia</option>
+                    <option value="plan">Plano</option>
+                    <option value="term_months">Prazo</option>
+                    <option value="group_type">Tipo Grupo</option>
+                    <option value="models">Modelos</option>
+                    <option value="status">Status</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Pesquisar grupos ativos (qualquer coluna)</label>
+                  <input id="ga_search" placeholder="Ex: 42001, Conquista, G, Ativo" />
+                </div>
+                <div style="display:flex; align-items:flex-end;">
+                  <button class="btn search-icon-btn" data-iconified="1" title="Buscar" aria-label="Buscar" onclick="searchGruposAtivos()">
+                    <span class="btn-ico" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" focusable="false">
+                        <circle cx="11" cy="11" r="7"></circle>
+                        <path d="M20 20l-3.5-3.5"></path>
+                      </svg>
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="auth-toolbar">
+                <button class="btn" onclick="openGrupoAtivoCreateModal()">Adicionar</button>
+                <button class="btn" onclick="deleteSelectedGruposAtivos()">Deletar Selecionados</button>
+              </div>
+
+              <div class="auth-table-wrap">
+                <table class="auth-table">
+                  <thead>
+                    <tr>
+                      <th><input type="checkbox" id="ga_select_all" onchange="toggleSelectAllGruposAtivos()" /></th>
+                      <th>ID</th>
+                      <th>Grupo</th>
+                      <th>Venc.</th>
+                      <th>Particip.</th>
+                      <th>Data Assembleia</th>
+                      <th>Plano</th>
+                      <th>Prazo</th>
+                      <th>Parc.</th>
+                      <th>Tipo</th>
+                      <th>Modelos</th>
+                      <th>Status</th>
+                      <th>Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody id="gaTableBody">
+                    <tr><td colspan="13">Sem resultados. Faça uma busca.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section id="config-idsgrupos" class="config-section hidden">
+              <div class="auth-search-row idsg-search-row">
+                <div class="field">
+                  <label>Coluna da Busca</label>
+                  <select id="idsg_search_column">
+                    <option value="">Global (todas)</option>
+                    <option value="id">ID</option>
+                    <option value="id_grupo">ID Grupo</option>
+                    <option value="products">Produto</option>
+                    <option value="due_day">Venc.</option>
+                    <option value="term_months">Prazo</option>
+                    <option value="group_kind">Tipo</option>
+                    <option value="group_code">Grupo</option>
+                    <option value="quota">Cota</option>
+                    <option value="r">R</option>
+                    <option value="d">D</option>
+                    <option value="booked">Reservado</option>
+                    <option value="created_at">Atualizado</option>
+                    <option value="participants">Particip.</option>
+                    <option value="failed">Falhas</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Pesquisar ids grupos disponÃ­veis (qualquer coluna)</label>
+                  <input id="idsg_search" placeholder="Ex: 62904808, 172, 00025, 1, etc." />
+                </div>
+                <div style="display:flex; align-items:flex-end;">
+                  <button class="btn search-icon-btn" data-iconified="1" title="Buscar" aria-label="Buscar" onclick="searchIDsGrupos()">
+                    <span class="btn-ico" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" focusable="false">
+                        <circle cx="11" cy="11" r="7"></circle>
+                        <path d="M20 20l-3.5-3.5"></path>
+                      </svg>
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="auth-toolbar">
+                <button class="btn" onclick="openIDsGrupoCreateModal()">Adicionar</button>
+                <button class="btn" onclick="deleteSelectedIDsGrupos()">Deletar Selecionados</button>
+              </div>
+
+              <div class="auth-table-wrap">
+                <table class="auth-table">
+                  <thead>
+                    <tr>
+                      <th><input type="checkbox" id="idsg_select_all" onchange="toggleSelectAllIDsGrupos()" /></th>
+                      <th>ID</th>
+                      <th>ID Grupo</th>
+                      <th>Produto</th>
+                      <th>Venc.</th>
+                      <th>Prazo</th>
+                      <th>Tipo</th>
+                      <th>Particip.</th>
+                      <th>Grupo</th>
+                      <th>Cota</th>
+                      <th>R</th>
+                      <th>D</th>
+                      <th>Parcelas</th>
+                      <th>Reser.</th>
+                      <th>Atualizado</th>
+                      <th>Falhas</th>
+                      <th>Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody id="idsgTableBody">
+                    <tr><td colspan="17">Sem resultados. Faça uma busca.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section id="config-assemblies" class="config-section hidden">
+              <div class="auth-search-row">
+                <div class="field">
+                  <label>Pesquisar Assembleias (qualquer coluna)</label>
+                  <input id="assembleia_search" placeholder="Ex: 47525, 419-1-4, vendedor, cliente" />
+                </div>
+                <div style="display:flex; align-items:flex-end;">
+                  <button class="btn search-icon-btn" data-iconified="1" title="Buscar" aria-label="Buscar" onclick="searchAssembleias()">
+                    <span class="btn-ico" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" focusable="false">
+                        <circle cx="11" cy="11" r="7"></circle>
+                        <path d="M20 20l-3.5-3.5"></path>
+                      </svg>
+                    </span>
+                  </button>
+                </div>
+              </div>
+              <div class="auth-toolbar">
+                <button class="btn" onclick="openAssembleiaCreateModal()">Adicionar</button>
+              </div>
+              <div class="auth-table-wrap">
+                <table class="auth-table">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Data Contempl.</th>
+                      <th>Loteria Fed.</th>
+                      <th>Grupo</th>
+                      <th>Cota R/D</th>
+                      <th>Tipo Contempl.</th>
+                      <th>Cliente</th>
+                      <th>Perc. Lance</th>
+                      <th>Vendedor</th>
+                      <th>Grupo-Cota-R/D</th>
+                      <th>A&ccedil;&otilde;es</th>
+                    </tr>
+                  </thead>
+                  <tbody id="assembleiaTableBody">
+                    <tr><td colspan="11">Sem resultados. Fa&ccedil;a uma busca.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section id="config-models" class="config-section hidden">
+              <div class="auth-search-row">
+                <div class="field">
+                  <label>Pesquisar models (id, model_api_id, model_name, status)</label>
+                  <input id="modelo_search" placeholder="Ex: 1, 1225, NXR 160 BROSS, is_active" />
+                </div>
+                <div style="display:flex; align-items:flex-end;">
+                  <button class="btn search-icon-btn" data-iconified="1" title="Buscar" aria-label="Buscar" onclick="searchModelos()">
+                    <span class="btn-ico" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" focusable="false">
+                        <circle cx="11" cy="11" r="7"></circle>
+                        <path d="M20 20l-3.5-3.5"></path>
+                      </svg>
+                    </span>
+                  </button>
+                </div>
+              </div>
+              <div class="auth-toolbar">
+                <button class="btn" onclick="openModeloCreateModal()">Adicionar</button>
+              </div>
+              <div class="auth-table-wrap">
+                <table class="auth-table">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>ID Modelo</th>
+                      <th>Modelo</th>
+                      <th>Status</th>
+                      <th>Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody id="modeloTableBody">
+                    <tr><td colspan="5">Sem resultados. Faça uma busca.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section id="config-produtos" class="config-section hidden">
+              <div class="auth-search-row">
+                <div class="field">
+                  <label>Pesquisar produtos (id, id_produto_api, produto, status)</label>
+                  <input id="produto_search" placeholder="Ex: 1, 172, POP, is_active" />
+                </div>
+                <div style="display:flex; align-items:flex-end;">
+                  <button class="btn search-icon-btn" data-iconified="1" title="Buscar" aria-label="Buscar" onclick="searchProdutos()">
+                    <span class="btn-ico" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" focusable="false">
+                        <circle cx="11" cy="11" r="7"></circle>
+                        <path d="M20 20l-3.5-3.5"></path>
+                      </svg>
+                    </span>
+                  </button>
+                </div>
+              </div>
+              <div class="auth-toolbar">
+                <button class="btn" onclick="openProdutoCreateModal()">Adicionar</button>
+              </div>
+              <div class="auth-table-wrap">
+                <table class="auth-table">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>ID Produto</th>
+                      <th>Produto</th>
+                      <th>Status</th>
+                      <th>Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody id="produtoTableBody">
+                    <tr><td colspan="5">Sem resultados. Faça uma busca.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section id="config-database" class="config-section hidden">
+              <div class="field-grid">
+                <div class="field full">
+                  <label>Caminho do Banco (database_path)</label>
+                  <input id="database_path" placeholder="Ex: honda.sqlite" />
+                </div>
+                <div class="field full">
+                  <label>URL Base da API (api_base_url)</label>
+                  <input id="api_base_url" placeholder="Ex: https://apigate.hondaservicosfinanceiros.com.br/bff-plataforma-vendas/v1" />
+                </div>
+              </div>
+
+              <div class="form-footer">
+                <button class="btn" onclick="createDatabaseTables()">Criar/Atualizar Tabelas</button>
+                <button class="btn" onclick="clearDatabaseTables()">Excluir Dados das Tabelas</button>
+                <button class="btn" onclick="dropDatabaseTables()">Excluir Tabelas</button>
+              </div>
+
+              <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid var(--border);">
+                <h4>Backup e Restaura&ccedil;&atilde;o</h4>
+                <p style="font-size: 13px; color: #666; margin-bottom: 15px;">
+                  Gere um arquivo SQL compat&iacute;vel com SQLite e Postgres para salvaguardar seus dados.
+                </p>
+                <div class="form-footer" style="justify-content: flex-start; gap: 15px;">
+                  <button class="btn btn-execute" onclick="downloadDatabaseBackup()">Gerar Backup (.sql)</button>
+                  <button class="btn" onclick="document.getElementById('db_restore_file').click()">Restaurar do Backup</button>
+                  <input type="file" id="db_restore_file" style="display:none" onchange="uploadDatabaseRestore(this)" accept=".sql" />
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <div id="dashboardDetailsModal" class="modal hidden" onclick="closeDashboardDetailsModal(event)">
+    <div class="modal-card" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <div>
+          <h3 id="dashDetailsTitle">Detalhamento</h3>
+          <p class="modal-sub">Registros filtrados do dashboard (m&aacute;ximo 200).</p>
+        </div>
+        <button class="btn" onclick="closeDashboardDetailsModal()">Fechar</button>
+      </div>
+      <div class="diag-body dash-details-body">
+        <div class="auth-table-wrap">
+          <table class="auth-table dash-details-table">
+            <colgroup>
+              <col style="width:5ch;" />
+              <col style="width:14ch;" />
+              <col style="width:8ch;" />
+              <col style="width:20ch;" />
+              <col style="width:10ch;" />
+            </colgroup>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Solicitado</th>
+                <th>Filial</th>
+                <th>Vendedor</th>
+                <th>Gr Atend</th>
+              </tr>
+            </thead>
+            <tbody id="dashDetailsBody">
+              <tr><td colspan="5">Sem dados.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="successMessagesModal" class="modal hidden" onclick="closeSuccessMessagesModal(event)">
+    <div class="modal-card" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <div>
+          <h3>Mensagens de Solicitações Atendidas</h3>
+          <p class="modal-sub">Selecione as mensagens e clique em copiar para enviar no WhatsApp.</p>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button type="button" class="btn" onclick="copySuccessMessages()">Copiar</button>
+          <button type="button" class="btn" onclick="closeSuccessMessagesModal()">Fechar</button>
+        </div>
+      </div>
+      <div class="diag-body">
+        <div id="successMessagesList" class="success-msg-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="monitorModal" class="modal hidden" onclick="closeMonitoringModal(event)">
+    <div class="modal-card" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <div>
+          <h3>Monitoramento</h3>
+          <p class="modal-sub">Acompanhamento em tempo real da execução.</p>
+        </div>
+        <button class="btn" onclick="closeMonitoringModal()">Fechar</button>
+      </div>
+      <div class="diag-body">
+        <div class="monitor-grid">
+          <div class="monitor-card">
+            <p class="monitor-label">Status</p>
+            <p class="monitor-value" id="monStatus">Pronto</p>
+            <p class="monitor-meta" id="monElapsed">--</p>
+          </div>
+          <div class="monitor-card">
+            <p class="monitor-label">Linhas de log</p>
+            <p class="monitor-value" id="monLines">0</p>
+            <p class="monitor-meta" id="monRate">0.00 linhas/s</p>
+          </div>
+          <div class="monitor-card">
+            <p class="monitor-label">HTTP 2xx/4xx/5xx</p>
+            <p class="monitor-value" id="monHttp">0 / 0 / 0</p>
+            <p class="monitor-meta" id="monHttpDetail">0 respostas</p>
+          </div>
+          <div class="monitor-card">
+            <p class="monitor-label">&Uacute;ltima atualiza&ccedil;&atilde;o</p>
+            <p class="monitor-value" id="monUpdated">--:--:--</p>
+            <p class="monitor-meta" id="monWindow">janela local</p>
+          </div>
+        </div>
+
+        <p class="monitor-empty" id="monInfo">Sem eventos recentes.</p>
+        <pre class="monitor-log" id="monRecent"></pre>
+      </div>
+    </div>
+  </div>
+
+  <div id="diagModal" class="modal hidden" onclick="closeDiagnosticsModal(event)">
+    <div class="modal-card" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <div>
+          <h3>Logs e Diagnóstico</h3>
+          <p class="modal-sub">Arquivos da pasta log em ordem cronologica (mais recente primeiro).</p>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button id="diagBatchDelete" class="btn" onclick="deleteSelectedDiagnosticLogs()">Deletar Selecionados</button>
+          <button class="btn" onclick="closeDiagnosticsModal()">Fechar</button>
+        </div>
+      </div>
+      <div class="diag-body">
+        <div class="diag-list" id="diagList">
+          <div class="diag-row diag-head">
+            <div><input type="checkbox" id="diag_select_all" onchange="toggleSelectAllDiagnostic()" /></div>
+            <div>Arquivo</div>
+            <div>Data</div>
+            <div>Tamanho</div>
+            <div>Ações</div>
+          </div>
+          <div class="diag-row"><div>Carregando...</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="authEditModal" class="modal hidden" onclick="closeAuthEditModal(event)">
+    <div class="modal-card auth-modal-card" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <div>
+          <h3 id="authModalTitle">Editar Usuário</h3>
+          <p class="modal-sub">Atualiza registro da tabela auth.</p>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button class="btn" onclick="prepareAuthCreateForm()">Novo Usuário</button>
+          <button class="btn" onclick="closeAuthEditModal()">Fechar</button>
+        </div>
+      </div>
+      <div class="diag-body">
+        <div class="auth-edit-grid">
+          <div class="field"><label>ID</label><input id="auth_id" class="readonly" readonly /></div>
+          <div class="field"><label>CPF</label><input id="auth_cpf" placeholder="Ex: 05722137359" /></div>
+          <div class="field"><label>C&oacute;d. Empresa</label><input id="auth_cod_empresa" placeholder="Ex: 1" /></div>
+          <div class="field"><label>Usu&aacute;rio da API</label><input id="auth_cod_usuario" placeholder="Ex: DENILSON" /></div>
+          <div class="field"><label>C&oacute;d. Concession&aacute;ria</label><input id="auth_cod_concessionaria" placeholder="Ex: 1018124" /></div>
+          <div class="field"><label>Senha da API</label><input id="auth_senha" placeholder="Sua senha da API" /></div>
+          <div class="field full"><label>Token de Acesso</label><input id="auth_token" class="readonly" readonly placeholder="Gerado automaticamente" /></div>
+          <div class="field full"><label>Token B3</label><input id="auth_token_b3" class="readonly" readonly placeholder="Gerado automaticamente" /></div>
+          <div class="field"><label>&Uacute;ltima Requisi&ccedil;&atilde;o</label><input id="auth_last_request" class="readonly" readonly /></div>
+          <div class="field"><label>Em Espera At&eacute; (Cooldown)</label><input id="auth_cooldown_until" class="readonly" readonly /></div>
+          <div class="field"><label>Bloqueado At&eacute;</label><input id="auth_blocked_until" class="readonly" readonly /></div>
+          <div class="field"><label>Em Execu&ccedil;&atilde;o (In Flight)</label><input id="auth_in_flight" class="readonly" readonly /></div>
+          <div class="field"><label>Falhas (401 N&atilde;o Autorizado)</label><input id="auth_error_401_count" class="readonly" readonly /></div>
+          <div class="field"><label>Falhas (429 Limite Excedido)</label><input id="auth_error_429_count" class="readonly" readonly /></div>
+          <div class="field full"><label>Pontua&ccedil;&atilde;o de Prioridade</label><input id="auth_priority_score" class="readonly" readonly /></div>
+        </div>
+        <div class="form-footer">
+          <button class="btn" onclick="saveAuthUser()">Salvar</button>
+          <button class="btn" onclick="authenticateSelectedUser()">Autenticar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="solicitacaoEditModal" class="modal hidden" onclick="closeSolicitacaoEditModal(event)">
+    <div class="modal-card auth-modal-card" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <div>
+          <h3 id="solicitacaoModalTitle">Editar Solicita&ccedil;&atilde;o</h3>
+          <p class="modal-sub">Atualiza registro da tabela solicita&ccedil;&otilde;es.</p>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button type="button" class="btn" onclick="openSolicitacaoCreateModal()">Nova Solicita&ccedil;&atilde;o</button>
+          <button type="button" class="btn" onclick="closeSolicitacaoEditModal()">Fechar</button>
+        </div>
+      </div>
+      <div class="diag-body">
+        <div class="auth-edit-grid">
+          <div class="field"><label>ID</label><input id="sol_id" class="readonly" readonly /></div>
+          <div class="field"><label>Data/Hora Solicita&ccedil;&atilde;o</label><input id="sol_data_hora_solicitacao" /></div>
+          <div class="field"><label>CPF</label><input id="sol_cpf" oninput="autoFillSolicitacaoEditByCPF()" /></div>
+          <div class="field"><label>Filial</label><input id="sol_filial" /></div>
+          <div class="field"><label>Vendedor</label><input id="sol_vendedor" /></div>
+          <div class="field"><label>Modelo</label>
+            <select id="sol_modelo">
+              <option value="">Selecione o modelo</option>
+            </select>
+          </div>
+          <div class="field"><label>Licenciado</label><select id="sol_plano"><option value="N&atilde;o" selected>N&atilde;o</option><option value="Sim">Sim</option></select></div>
+          <div class="field"><label>Grupo</label><input id="sol_grupo" onblur="autoFillSolicitacaoByGroup('sol')" /></div>
+          <div class="field"><label>Qtde Parcelas</label><input id="sol_qtde_parcelas" /></div>
+          <div class="field"><label>Perc. Lance</label><input id="sol_perc_lance" /></div>
+          <div class="field"><label>Com Restri&ccedil;&atilde;o</label><select id="sol_com_restricao"><option value="N&atilde;o" selected>N&atilde;o</option><option value="Sim">Sim</option></select></div>
+          <div class="field full"><label>Observa&ccedil;&atilde;o</label><input id="sol_observacao" /></div>
+          <div class="field"><label>ID Cota</label><input id="sol_id_cota" /></div>
+          <div class="field"><label>Grupo Atendido</label><input id="sol_grupo_atendido" /></div>
+          <div class="field"><label>Cota R/D</label><input id="sol_cota_r_d" /></div>
+          <div class="field"><label>Data/Hora Atendimento</label><input id="sol_data_hora_atendimento" /></div>
+          <div class="field full"><label>Situa&ccedil;&atilde;o</label><input id="sol_situacao" /></div>
+          <div class="field full"><label>Lance Contempla&ccedil;&atilde;o</label><input id="sol_lance_contemplacao" /></div>
+        </div>
+        <div class="form-footer">
+          <button type="button" class="btn" onclick="saveSolicitacao()">Salvar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="idsgEditModal" class="modal hidden" onclick="closeIDsGrupoEditModal(event)">
+    <div class="modal-card auth-modal-card" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <div>
+          <h3 id="idsgModalTitle">Editar Ids Grupos DisponÃ­veis</h3>
+          <p class="modal-sub">Atualiza registro da tabela available_group_ids.</p>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button class="btn" onclick="openIDsGrupoCreateModal()">Adicionar</button>
+          <button class="btn" onclick="closeIDsGrupoEditModal()">Fechar</button>
+        </div>
+      </div>
+      <div class="diag-body">
+        <div class="auth-edit-grid">
+          <div class="field"><label>ID</label><input id="idsg_id" class="readonly" readonly /></div>
+          <div class="field"><label>ID Grupo</label><input id="idsg_id_grupo" /></div>
+          <div class="field"><label>Produto</label><input id="idsg_produto" /></div>
+          <div class="field"><label>Venc.</label><input id="idsg_vencimento" /></div>
+          <div class="field"><label>Prazo</label><input id="idsg_prazo" /></div>
+          <div class="field"><label>Tipo</label><input id="idsg_tipo" /></div>
+          <div class="field"><label>Participantes</label><input id="idsg_participantes" /></div>
+          <div class="field"><label>Grupo</label><input id="idsg_grupo" /></div>
+          <div class="field"><label>Cota</label><input id="idsg_cota" /></div>
+          <div class="field"><label>R</label><input id="idsg_r" /></div>
+          <div class="field"><label>D</label><input id="idsg_d" /></div>
+          <div class="field"><label>Parcelas</label><input id="idsg_parcelas_calc" class="readonly" readonly /></div>
+          <div class="field"><label>Reservado</label><input id="idsg_booked" /></div>
+          <div class="field"><label>Atualizado</label><input id="idsg_created_at" /></div>
+          <div class="field"><label>Falhas</label><input id="idsg_failed" /></div>
+        </div>
+        <div class="form-footer">
+          <button class="btn" onclick="saveIDsGrupo()">Salvar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="gaEditModal" class="modal hidden" onclick="closeGrupoAtivoEditModal(event)">
+    <div class="modal-card auth-modal-card" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <div>
+          <h3 id="gaModalTitle">Editar Grupo Ativo</h3>
+          <p class="modal-sub">Atualiza registro da tabela active_groups.</p>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button class="btn" onclick="openGrupoAtivoCreateModal()">Adicionar</button>
+          <button class="btn" onclick="closeGrupoAtivoEditModal()">Fechar</button>
+        </div>
+      </div>
+      <div class="diag-body">
+        <div class="auth-edit-grid">
+          <div class="field"><label>ID</label><input id="ga_id" class="readonly" readonly /></div>
+          <div class="field"><label>Grupo</label><input id="ga_grupo" /></div>
+          <div class="field"><label>Vencimento</label><input id="ga_vencimento" /></div>
+          <div class="field"><label>Qtd. Participantes</label><input id="ga_qtd_participantes" /></div>
+          <div class="field"><label>Data Assembleia Inaugural</label><input id="ga_data_assembleia_inaugural" type="date" /></div>
+          <div class="field"><label>Plano</label><input id="ga_plano" /></div>
+          <div class="field"><label>Prazo</label><input id="ga_prazo" /></div>
+          <div class="field"><label>Tipo Grupo</label><input id="ga_tipo_grupo" /></div>
+          <div class="field full"><label>Modelos</label><input id="ga_modelos" /></div>
+          <div class="field"><label>Status</label>
+            <select id="ga_status">
+              <option value="is_active">Ativo</option>
+              <option value="inactive">Inativo</option>
+            </select>
+          </div>
+          <div class="field"><label>Criado em</label><input id="ga_created_at" class="readonly" readonly /></div>
+          <div class="field"><label>Atualizado em</label><input id="ga_updated_at" class="readonly" readonly /></div>
+        </div>
+        <div class="form-footer">
+          <button class="btn" onclick="saveGrupoAtivo()">Salvar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="assembleiaEditModal" class="modal hidden" onclick="closeAssembleiaEditModal(event)">
+    <div class="modal-card auth-modal-card" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <div>
+          <h3 id="assembleiaModalTitle">Editar Assembleia</h3>
+          <p class="modal-sub">Atualiza registro da tabela assembleias.</p>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button class="btn" onclick="openAssembleiaCreateModal()">Adicionar</button>
+          <button class="btn" onclick="closeAssembleiaEditModal()">Fechar</button>
+        </div>
+      </div>
+      <div class="diag-body">
+        <div class="auth-edit-grid">
+          <div class="field"><label>ID</label><input id="assembleia_id" class="readonly" readonly /></div>
+          <div class="field"><label>Data Contempla&ccedil;&atilde;o</label><input id="assembleia_data_contemplacao" type="date" /></div>
+          <div class="field"><label>Loteria Federal</label><input id="assembleia_loteria_federal" /></div>
+          <div class="field"><label>Grupo</label><input id="assembleia_grupo" /></div>
+          <div class="field"><label>Cota R/D</label><input id="assembleia_cota_r_d" /></div>
+          <div class="field"><label>Tipo Contempla&ccedil;&atilde;o</label><input id="assembleia_tipo_contemplacao" /></div>
+          <div class="field"><label>Data Desclassifica&ccedil;&atilde;o</label><input id="assembleia_data_desclassificao" /></div>
+          <div class="field"><label>Cliente</label><input id="assembleia_cliente" /></div>
+          <div class="field"><label>Perc. Lance</label><input id="assembleia_perc_lance" /></div>
+          <div class="field"><label>Vendedor</label><input id="assembleia_vendedor" /></div>
+          <div class="field full"><label>Grupo-Cota-R/D</label><input id="assembleia_grupo_cota_r_d" class="readonly" readonly /></div>
+        </div>
+        <div class="form-footer">
+          <button class="btn" onclick="saveAssembleia()">Salvar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="modeloEditModal" class="modal hidden" onclick="closeModeloEditModal(event)">
+    <div class="modal-card auth-modal-card" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <div>
+          <h3 id="modeloModalTitle">Editar Modelo</h3>
+          <p class="modal-sub">Atualiza registro da tabela models.</p>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button class="btn" onclick="openModeloCreateModal()">Adicionar</button>
+          <button class="btn" onclick="closeModeloEditModal()">Fechar</button>
+        </div>
+      </div>
+      <div class="diag-body">
+        <div class="auth-edit-grid">
+          <div class="field"><label>ID</label><input id="modelo_id" class="readonly" readonly /></div>
+          <div class="field"><label>ID Modelo</label><input id="modelo_idmodelo" /></div>
+          <div class="field"><label>Modelo</label><input id="modelo_nome" /></div>
+          <div class="field"><label>Status</label>
+            <select id="modelo_status">
+              <option value="Ativo">Ativo</option>
+              <option value="Inativo">Inativo</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-footer">
+          <button class="btn" onclick="saveModelo()">Salvar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="produtoEditModal" class="modal hidden" onclick="closeProdutoEditModal(event)">
+    <div class="modal-card auth-modal-card" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <div>
+          <h3 id="produtoModalTitle">Editar Produto</h3>
+          <p class="modal-sub">Atualiza registro da tabela produtos.</p>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button class="btn" onclick="openProdutoCreateModal()">Adicionar</button>
+          <button class="btn" onclick="closeProdutoEditModal()">Fechar</button>
+        </div>
+      </div>
+      <div class="diag-body">
+        <div class="auth-edit-grid">
+          <div class="field"><label>ID</label><input id="produto_id" class="readonly" readonly /></div>
+          <div class="field"><label>ID Produto</label><input id="produto_idproduto" /></div>
+          <div class="field"><label>Produto</label><input id="produto_nome" /></div>
+          <div class="field"><label>Status</label>
+            <select id="produto_status">
+              <option value="Ativo">Ativo</option>
+              <option value="Inativo">Inativo</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-footer">
+          <button class="btn" onclick="saveProduto()">Salvar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="appUserEditModal" class="modal hidden" onclick="closeAppUserEditModal(event)">
+    <div class="modal-card auth-modal-card" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <div>
+          <h3 id="appUserModalTitle">Editar Usu&aacute;rio do Sistema</h3>
+          <p class="modal-sub">Gerencia acesso ao sistema (login da aplica&ccedil;&atilde;o).</p>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button class="btn" onclick="openAppUserCreateModal()">Novo Usu&aacute;rio</button>
+          <button class="btn" onclick="closeAppUserEditModal()">Fechar</button>
+        </div>
+      </div>
+      <div class="diag-body">
+        <div class="auth-edit-grid">
+          <div class="field"><label>ID</label><input id="appuser_id" class="readonly" readonly /></div>
+          <div class="field"><label>Nome de Usu&aacute;rio (Login)</label><input id="appuser_username" placeholder="Ex: base.honda" /></div>
+          <div class="field"><label>Nome Completo</label><input id="appuser_display_name" placeholder="Ex: Jo&atilde;o da Silva" /></div>
+          <div class="field"><label>Telefone</label><input id="appuser_phone" placeholder="Ex: 86999867710" /></div>
+          <div class="field"><label>E-mail</label><input id="appuser_email" placeholder="Ex: contato@empresa.com" /></div>
+          <div class="field"><label>CPF</label><input id="appuser_cpf" placeholder="Apenas n&uacute;meros" /></div>
+          <div class="field"><label>Filial</label><input id="appuser_filial" placeholder="Ex: Matriz" /></div>
+          <div class="field"><label>Perfil de Acesso</label><select id="appuser_role"><option value="admin">admin</option><option value="operador">operador</option><option value="vendedor">vendedor</option><option value="viewer">viewer</option></select></div>
+          <div class="field"><label>Status (Ativo)</label><select id="appuser_is_active"><option value="1">Sim</option><option value="0">N&atilde;o</option></select></div>
+          <div class="field field-alert"><label>Definir Nova Senha</label><input id="appuser_password" type="password" placeholder="SÃ³ preencha para alterar/criar" /></div>
+          <div class="field"><label>Tentativas Falhas</label><input id="appuser_failed_login_attempts" class="readonly" readonly /></div>
+          <div class="field"><label>Bloqueado At&eacute;</label><input id="appuser_locked_until" class="readonly" readonly /></div>
+          <div class="field"><label>&Uacute;ltimo Acesso</label><input id="appuser_last_login_at" class="readonly" readonly /></div>
+          <div class="field"><label>Atualizado Em</label><input id="appuser_updated_at" class="readonly" readonly /></div>
+          <div class="field"><label>Criado Em</label><input id="appuser_created_at" class="readonly" readonly /></div>
+        </div>
+        <div class="form-footer">
+          <button class="btn" onclick="saveAppUser()">Salvar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="statusDetailsModal" class="modal hidden" onclick="closeStatusDetailsModal(event)">
+    <div class="modal-card" style="width:min(820px,96vw);" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <div>
+          <h3>Detalhes do Status</h3>
+          <p class="modal-sub">Mensagem completa do status atual.</p>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button type="button" class="btn" onclick="copyStatusDetails()">Copiar</button>
+          <button type="button" class="btn" onclick="closeStatusDetailsModal()">Fechar</button>
+        </div>
+      </div>
+      <div class="diag-body">
+        <textarea id="statusDetailsText" class="status-detail-text" readonly></textarea>
+      </div>
+    </div>
+  </div>
+
+  <div id="rbacEditModal" class="modal hidden" onclick="closeRBACEditModal(event)">
+    <div class="modal-card auth-modal-card" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <div>
+          <h3 id="rbacModalTitle">Editar Permissões</h3>
+          <p class="modal-sub">Marque ou desmarque as permissões para o perfil atual.</p>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button class="btn" onclick="closeRBACEditModal()">Fechar</button>
+        </div>
+      </div>
+      <div class="diag-body">
+        <input type="hidden" id="rbacModalRoleIndex">
+        <div id="rbacModalList" style="max-height: 400px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; padding: 0 5px;">
+          <!-- Checkboxes virão via JS -->
+        </div>
+        <div class="form-footer">
+          <button class="btn" data-icon="save" onclick="saveRBACEditModal()">Salvar Alterações</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="mfaSetupModal" class="modal hidden" onclick="closeMFASetupModal(event)">
+    <div class="modal-card auth-modal-card" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <div>
+          <h3>Seguran&ccedil;a Avan&ccedil;ada (MFA)</h3>
+          <p class="modal-sub">Configure a autentica&ccedil;&atilde;o de dois fatores para sua conta.</p>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button class="btn" onclick="closeMFASetupModal()">Fechar</button>
+        </div>
+      </div>
+      <div class="auth-modal-body" style="text-align:center; padding:20px;">
+        <div id="mfaSetupInitial">
+          <p style="margin-bottom:20px; font-size:14px; color:var(--text-dim);">O uso de MFA adiciona uma camada extra de seguran&ccedil;a. Voc&ecirc; precisar&aacute; de um app como Google Authenticator.</p>
+          <button class="btn" onclick="startMFASetup()">Configurar MFA Agora</button>
+        </div>
+        
+        <div id="mfaSetupStep2" class="hidden">
+          <p style="margin-bottom:15px; font-weight:bold;">1. Escaneie o QR Code abaixo:</p>
+          <div id="mfaQRCode" style="display:inline-block; background:white; padding:10px; border-radius:8px; margin-bottom:15px;"></div>
+          
+          <p style="margin-bottom:10px; font-size:13px; color:var(--text-dim);">Ou digite a chave manualmente no app:</p>
+          <div style="background:var(--bg-card); padding:10px; border-radius:4px; font-family:monospace; margin-bottom:15px; display:flex; justify-content:center; align-items:center; gap:10px;">
+            <span id="mfaSecretKey" style="letter-spacing:1px; font-weight:bold;"></span>
+            <button class="btn-text" style="padding:4px 8px; font-size:11px;" onclick="copyMFASecret()">Copiar</button>
+          </div>
+          
+          <p style="margin-bottom:15px; font-weight:bold;">2. Digite o c&oacute;digo de 6 d&iacute;gitos gerado:</p>
+          <div class="field" style="max-width:200px; margin:0 auto 15px;">
+            <input id="mfaSetupCode" placeholder="000000" maxlength="6" style="text-align:center; font-size:18px; letter-spacing:4px;" />
+          </div>
+          
+          <button class="btn" style="width:100%;" onclick="confirmMFASetup()">Ativar Autentica&ccedil;&atilde;o</button>
+        </div>
+        
+        <div id="mfaSetupSuccess" class="hidden">
+          <div style="font-size:48px; color:var(--success); margin-bottom:15px;">&#10004;</div>
+          <h3>MFA Ativado!</h3>
+          <p style="color:var(--text-dim); margin-top:10px;">Sua conta agora est&aacute; protegida com autentica&ccedil;&atilde;o de dois fatores.</p>
+          <button class="btn" style="margin-top:20px;" onclick="closeMFASetupModal()">Concluir</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <div id="loginOverlay" class="login-overlay hidden">
+    <div class="login-screen">
+      <section class="login-visual">
+        <img src="https://images.unsplash.com/photo-1558981806-ec527fa84c39?auto=format&fit=crop&w=1600&q=80"
+             alt="Moto Honda"
+             referrerpolicy="no-referrer"
+             onerror="this.onerror=null;this.src='/static/login-visual.svg';" />
+        <div class="login-visual-caption">
+          <h3>Honda Go</h3>
+          <p>Reserva de Cotas com monitoramento e opera&ccedil;&atilde;o centralizada.</p>
+        </div>
+      </section>
+      <section class="login-form-side">
+        <div class="login-card">
+          <div class="login-head">
+            <h3>Acesso ao Sistema</h3>
+            <p>Informe usu&aacute;rio e senha para continuar.</p>
+          </div>
+          <div class="login-body">
+            <div id="loginMainFields">
+              <div class="field">
+                <label>Usu&aacute;rio</label>
+                <input id="login_username" placeholder="Usu&aacute;rio" />
+              </div>
+              <div class="field">
+                <label>Senha</label>
+                <input id="login_password" type="password" placeholder="Digite sua senha" />
+              </div>
+              <p id="login_error" class="login-error"></p>
+              <div class="form-footer" style="margin-top:8px; padding-top:10px;">
+                <button class="btn" onclick="loginAppUser()">Entrar</button>
+              </div>
+            </div>
+            
+            <div id="mfaChallengeFields" class="hidden">
+              <p class="mfa-info">Este usuário possui autenticação de dois fatores ativa.</p>
+              <div class="field">
+                <label>C&oacute;digo do Aplicativo</label>
+                <input id="login_mfa_code" placeholder="000000" maxlength="6" inputmode="numeric" />
+              </div>
+              <p id="mfa_login_error" class="login-error"></p>
+              <div class="form-footer" style="margin-top:8px; padding-top:10px; display:flex; flex-direction:column; gap:8px;">
+                <button class="btn" onclick="verifyMFALogin()">Verificar C&oacute;digo</button>
+                <button class="btn-text" onclick="cancelMFALogin()" style="font-size:12px; color:var(--text-dim); cursor:pointer; background:none; border:none;">Voltar para Usuário/Senha</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+
+</body>
+</html>

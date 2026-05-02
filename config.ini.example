@@ -1,0 +1,37 @@
+[BOOKING]
+modelo =1225
+produto=[101]
+reservar_modo=b1
+dry_run=false
+# go-engine (opcional)
+cooldown_user_ms=200
+worker_count_go=24
+request_timeout_ms=7000
+sleep = 0
+numassembleiasfaltantes=[30,40]
+grupo=
+cpf=[]
+id_cota=
+cod_empre=
+vencimento=[15]
+token_principal=ZDU4ZTA4MzYtYTM0Ny00MzdhLWE3MDktNzNjNzZkNzQ4OGMwOjQ4YjFhNjk1LWMyNTItNGE0Yy1iMWVjLTE3MDZmMTg4NWMwMQ==
+# Opcional via ENV (prioridade sobre INI): HONDAGO_TOKEN_PRINCIPAL
+
+
+[GROUPS]
+cod_grupos = []
+max_workers = 1
+
+
+[CRAWLER]
+id = 1
+sleep = 3 
+range = 1,2
+# ATENÇÃO: URL da API. Não alterar este valor sem conhecimento técnico.
+api_url = https://apigate.hondaservicosfinanceiros.com.br/bff-plataforma-vendas/v1/valorlance
+# Opcional via ENV (prioridade sobre INI): HONDAGO_API_URL
+
+[SYSTEM]
+database_path = honda.sqlite
+api_base_url = https://apigate.hondaservicosfinanceiros.com.br/bff-plataforma-vendas/v1
+# Opcional via ENV (prioridade sobre INI): HONDAGO_API_BASE_URL

@@ -1,0 +1,10 @@
+docker exec -i hondago-postgres psql -U hondago -d hondago < .\honda_go_postgres_backup_YYYYMMDD_HHMMSS.sql
+
+
+
+instalar na postgres docker da loja
+
+psql "postgres://USUARIO:SENHA@HOST:5432/BANCO?sslmode=disable" -f honda_go_postgres_backup_xxx.sql
+
+
+docker exec -i <container_postgres> psql -U <usuario> -d <banco> < honda_go_postgres_backup_xxx.sql

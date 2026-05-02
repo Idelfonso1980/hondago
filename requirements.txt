@@ -1,0 +1,21 @@
+# Honda Go - requisitos e bootstrap
+#
+# Este arquivo e apenas descritivo.
+# Para instalar/baixar dependencias automaticamente, execute:
+#
+# Windows:
+#   powershell -ExecutionPolicy Bypass -File .\setup.ps1
+#
+# macOS / Linux:
+#   chmod +x ./setup.sh
+#   ./setup.sh
+#
+# Requisitos:
+# - Go 1.22+
+# - Internet para baixar modulos Go (primeira execucao)
+# - honda.sqlite na raiz (ou database_path no config.ini)
+#
+# Dependencias de codigo:
+# - declaradas em go.mod/go.sum
+# - instaladas por: go mod download
+

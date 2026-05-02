@@ -1,0 +1,50 @@
+services:
+  app:
+    image: golang:1.22-bookworm
+    container_name: hondago-app
+    restart: unless-stopped
+    working_dir: /workspace
+    environment:
+      TZ: America/Fortaleza
+      HONDAGO_DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+    volumes:
+      - ./:/workspace
+    ports:
+      - "8787:8787"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      bash -lc "go mod download &&
+      go run ./cmd/honda-gui -config ./config.ini -addr 0.0.0.0:8787"
+
+  postgres:
+    image: postgres:16
+    container_name: hondago-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-hondago}
+      POSTGRES_USER: ${POSTGRES_USER:-hondago}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TZ: America/Fortaleza
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hondago} -d ${POSTGRES_DB:-hondago}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  adminer:
+    image: adminer:5
+    container_name: hondago-adminer
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    depends_on:
+      - postgres
+
+volumes:
+  pgdata:
