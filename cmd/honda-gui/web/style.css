@@ -1446,7 +1446,7 @@
         padding: 14px;
       }
       :root {
-        --mobile-header-offset: 122px;
+        --mobile-header-offset: 146px;
       }
       .top-left { min-width: auto; }
       .title { flex: 1 1 220px; }
