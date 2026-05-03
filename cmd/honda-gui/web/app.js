@@ -387,7 +387,18 @@
       return window.matchMedia("(max-width: 900px)").matches;
     }
 
+    function updateMobileHeaderOffset(){
+      const root = document.documentElement;
+      const topbar = document.querySelector(".topbar");
+      if (!root || !topbar) return;
+      const h = Math.ceil(topbar.getBoundingClientRect().height || 76);
+      // margem extra para garantir que o primeiro item do menu nao fique encoberto
+      const offset = Math.max(76, h + 10);
+      root.style.setProperty("--mobile-header-offset", offset + "px");
+    }
+
     function applySidebarState(){
+      updateMobileHeaderOffset();
       const collapsed = localStorage.getItem("sidebar_collapsed") === "1";
       document.body.classList.toggle("sidebar-collapsed", collapsed);
       document.body.classList.remove("sidebar-mobile-open");
@@ -896,6 +907,7 @@
     }
 
     function toggleSidebar(){
+      updateMobileHeaderOffset();
       if (isMobileLayout()) {
         const open = !document.body.classList.contains("sidebar-mobile-open");
         document.body.classList.toggle("sidebar-mobile-open", open);
@@ -4458,6 +4470,9 @@
     setMinhasSolicitacoesDefaultDates();
     setReservedDefaultDates();
     setMensagensDefaultDates();
+    updateMobileHeaderOffset();
+    window.addEventListener("resize", updateMobileHeaderOffset);
+    window.addEventListener("orientationchange", updateMobileHeaderOffset);
     normalizeUIText();
     observeUTF8Fix();
     bindIDsGruposInfiniteScroll();
