@@ -1197,7 +1197,10 @@
           if (loginErr) loginErr.textContent = msg;
           setStatus(msg);
         } else {
-          const msg = data.message || "Falha no login";
+          let msg = data.message || "Falha no login";
+          if (res.status >= 500) {
+            msg = "ServiÃ§o temporariamente indisponÃ­vel. Tente novamente em instantes.";
+          }
           if (loginErr) loginErr.textContent = msg;
           setStatus(msg);
         }

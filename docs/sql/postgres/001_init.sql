@@ -1,4 +1,4 @@
-BEGIN;
+﻿BEGIN;
 
 CREATE TABLE IF NOT EXISTS roles (
   id BIGINT PRIMARY KEY,
@@ -97,12 +97,9 @@ CREATE TABLE IF NOT EXISTS requests (
   requested_time TIME,
   served_date DATE,
   served_time TIME,
-  CONSTRAINT fk_requests_requester_user
-    FOREIGN KEY (requester_user_id) REFERENCES users(id),
-  CONSTRAINT fk_requests_vendor_identity
-    FOREIGN KEY (vendor_identity_id) REFERENCES vendor_identity_map(id),
-  CONSTRAINT fk_requests_api_account
-    FOREIGN KEY (api_account_id) REFERENCES api_accounts(id)
+  CONSTRAINT fk_requests_requester_user FOREIGN KEY (requester_user_id) REFERENCES users(id),
+  CONSTRAINT fk_requests_vendor_identity FOREIGN KEY (vendor_identity_id) REFERENCES vendor_identity_map(id),
+  CONSTRAINT fk_requests_api_account FOREIGN KEY (api_account_id) REFERENCES api_accounts(id)
 );
 
 CREATE TABLE IF NOT EXISTS reservations (
@@ -115,8 +112,7 @@ CREATE TABLE IF NOT EXISTS reservations (
   model_name VARCHAR(255) NOT NULL,
   replacement_quota_id VARCHAR(255) NOT NULL,
   created_at TIMESTAMP,
-  CONSTRAINT fk_reservations_request
-    FOREIGN KEY (request_id) REFERENCES requests(id)
+  CONSTRAINT fk_reservations_request FOREIGN KEY (request_id) REFERENCES requests(id)
 );
 
 CREATE TABLE IF NOT EXISTS available_group_ids (
@@ -185,15 +181,7 @@ CREATE TABLE IF NOT EXISTS assemblies (
   bid_percent DOUBLE PRECISION,
   seller_name VARCHAR(255),
   group_code INTEGER,
-  federal_lottery INTEGER,
-  group_quota_rd VARCHAR(64) GENERATED ALWAYS AS (
-    CASE
-      WHEN BTRIM(COALESCE(group_code::text, '')) = '' AND BTRIM(COALESCE(quota_rd, '')) = '' THEN ''
-      WHEN BTRIM(COALESCE(group_code::text, '')) = '' THEN BTRIM(COALESCE(quota_rd, ''))
-      WHEN BTRIM(COALESCE(quota_rd, '')) = '' THEN BTRIM(COALESCE(group_code::text, ''))
-      ELSE BTRIM(COALESCE(group_code::text, '')) || '-' || BTRIM(COALESCE(quota_rd, ''))
-    END
-  ) STORED
+  federal_lottery INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS manual_notifications (
@@ -210,8 +198,7 @@ CREATE TABLE IF NOT EXISTS manual_notifications (
   action_user VARCHAR(255),
   created_at TIMESTAMP,
   updated_at TIMESTAMP,
-  CONSTRAINT fk_manual_notifications_request
-    FOREIGN KEY (request_id) REFERENCES requests(id)
+  CONSTRAINT fk_manual_notifications_request FOREIGN KEY (request_id) REFERENCES requests(id)
 );
 
 CREATE TABLE IF NOT EXISTS audit_log (
@@ -235,26 +222,21 @@ CREATE TABLE IF NOT EXISTS app_sessions (
   role VARCHAR(64) NOT NULL,
   permissions TEXT,
   authenticated_at TIMESTAMP NOT NULL,
-  CONSTRAINT fk_app_sessions_user
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  CONSTRAINT fk_app_sessions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_appuser_username ON users(username);
 CREATE INDEX IF NOT EXISTS idx_appuser_cpf ON users(cpf);
 CREATE INDEX IF NOT EXISTS idx_appuser_filial ON users(branch);
 CREATE INDEX IF NOT EXISTS idx_appuser_role ON users(role);
-
 CREATE INDEX IF NOT EXISTS idx_gruposativos_grupo ON active_groups(group_code);
 CREATE INDEX IF NOT EXISTS idx_gruposativos_vencimento ON active_groups(due_day);
 CREATE INDEX IF NOT EXISTS idx_gruposativos_status ON active_groups(status);
-
 CREATE UNIQUE INDEX IF NOT EXISTS idx_feriados_data_tipo ON holidays(holiday_date, holiday_type);
 CREATE INDEX IF NOT EXISTS idx_feriados_ativo ON holidays(is_active);
-
 CREATE INDEX IF NOT EXISTS idx_msgnotif_status_created ON manual_notifications(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_msgnotif_request ON manual_notifications(request_id);
 CREATE INDEX IF NOT EXISTS idx_msgnotif_cpf ON manual_notifications(cpf);
-
 CREATE INDEX IF NOT EXISTS idx_api_accounts_user ON api_accounts(user_id);
 CREATE INDEX IF NOT EXISTS idx_vendor_identity_user ON vendor_identity_map(user_id);
 CREATE INDEX IF NOT EXISTS idx_vendor_identity_cpf ON vendor_identity_map(cpf);

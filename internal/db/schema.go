@@ -292,7 +292,7 @@ func (s *Store) EnsureLegacySchema(ctx context.Context) error {
 	// Legacy auto-repair path is SQLite-oriented (sqlite_master/PRAGMA/rebuild table).
 	// In Postgres, schema is managed by SQL migrations/bootstrap scripts.
 	if s != nil && s.driver == "pgx" {
-		return nil
+		return s.ensurePostgresIDIntegrity(ctx)
 	}
 
 	if err := s.ensureSolicitacoesLicenciadoColumn(ctx); err != nil {
@@ -339,6 +339,98 @@ func (s *Store) EnsureLegacySchema(ctx context.Context) error {
 	if err := s.normalizeCotasReservadasDocumento(ctx); err != nil {
 		return err
 	}
+	return nil
+}
+
+func (s *Store) ensurePostgresIDIntegrity(ctx context.Context) error {
+	if s == nil || s.driver != "pgx" {
+		return nil
+	}
+
+	tables := []string{
+		"users",
+		"api_accounts",
+		"vendor_identity_map",
+		"requests",
+		"reservations",
+		"available_group_ids",
+		"models",
+		"products",
+		"active_groups",
+		"holidays",
+		"assemblies",
+		"manual_notifications",
+		"audit_log",
+	}
+
+	for _, table := range tables {
+		var exists bool
+		if err := s.DB.QueryRowContext(ctx, `
+SELECT EXISTS (
+  SELECT 1
+  FROM information_schema.tables
+  WHERE table_schema = 'public' AND table_name = $1
+)`, table).Scan(&exists); err != nil {
+			return fmt.Errorf("check table %s exists: %w", table, err)
+		}
+		if !exists {
+			continue
+		}
+
+		// Prevent silent startup with duplicated IDs.
+		var dupCount int64
+		dupQuery := fmt.Sprintf(`
+SELECT COUNT(1)
+FROM (
+  SELECT id
+  FROM %s
+  GROUP BY id
+  HAVING COUNT(1) > 1
+) d`, quoteIdent(table))
+		if err := s.DB.QueryRowContext(ctx, dupQuery).Scan(&dupCount); err != nil {
+			return fmt.Errorf("check duplicated ids on %s: %w", table, err)
+		}
+		if dupCount > 0 {
+			return fmt.Errorf("tabela %s possui ids duplicados (%d); execute script de saneamento antes de iniciar", table, dupCount)
+		}
+
+		var hasPK bool
+		if err := s.DB.QueryRowContext(ctx, `
+SELECT EXISTS (
+  SELECT 1
+  FROM pg_index i
+  JOIN pg_class t ON t.oid = i.indrelid
+  JOIN pg_namespace n ON n.oid = t.relnamespace
+  JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(i.indkey)
+  WHERE n.nspname = 'public'
+    AND t.relname = $1
+    AND i.indisprimary
+    AND a.attname = 'id'
+)`, table).Scan(&hasPK); err != nil {
+			return fmt.Errorf("check primary key on %s.id: %w", table, err)
+		}
+		if !hasPK {
+			if _, err := s.DB.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s ADD PRIMARY KEY (id)", quoteIdent(table))); err != nil {
+				return fmt.Errorf("add primary key on %s.id: %w", table, err)
+			}
+		}
+
+		var seqName sql.NullString
+		seqQuery := fmt.Sprintf("SELECT pg_get_serial_sequence('public.%s','id')", table)
+		if err := s.DB.QueryRowContext(ctx, seqQuery).Scan(&seqName); err != nil {
+			return fmt.Errorf("resolve sequence for %s.id: %w", table, err)
+		}
+		if seqName.Valid && strings.TrimSpace(seqName.String) != "" {
+			setvalQuery := fmt.Sprintf(
+				"SELECT setval($1::regclass, COALESCE((SELECT MAX(id) FROM %s), 1), true)",
+				quoteIdent(table),
+			)
+			if _, err := s.DB.ExecContext(ctx, setvalQuery, seqName.String); err != nil {
+				return fmt.Errorf("align sequence for %s.id: %w", table, err)
+			}
+		}
+	}
+
 	return nil
 }
 

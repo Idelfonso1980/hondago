@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
@@ -1132,7 +1133,8 @@ func (a *app) handleAppLogin(w http.ResponseWriter, r *http.Request) {
 
 	_, store, err := a.openStoreFromCurrentConfig()
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
+		log.Printf("[SECURITY] login open db error: %v", err)
+		writeErr(w, http.StatusServiceUnavailable, fmt.Errorf("servico temporariamente indisponivel"))
 		return
 	}
 
@@ -4602,12 +4604,14 @@ func writePostgresDumpSQL(ctx context.Context, databaseURL string, w io.Writer) 
 		"--dbname", dbName,
 		"--format=plain",
 		"--encoding=UTF8",
+		"--inserts",
 		"--clean",
 		"--if-exists",
 		"--no-owner",
 		"--no-privileges",
 	}
-	if err := runPgDump(ctx, "pg_dump", nil, pass, args, w); err != nil {
+	var raw strings.Builder
+	if err := runPgDump(ctx, "pg_dump", nil, pass, args, &raw); err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "pg_dump nao encontrado") {
 			// Fallback para ambiente Docker local (container padrao do projeto).
 			container := strings.TrimSpace(os.Getenv("HONDAGO_POSTGRES_CONTAINER"))
@@ -4620,7 +4624,10 @@ func writePostgresDumpSQL(ctx context.Context, databaseURL string, w io.Writer) 
 			}
 			dockerArgs = append(dockerArgs, container, "pg_dump")
 			dockerArgs = append(dockerArgs, args...)
-			if derr := runPgDump(ctx, "docker", dockerArgs, "", nil, w); derr == nil {
+			raw.Reset()
+			if derr := runPgDump(ctx, "docker", dockerArgs, "", nil, &raw); derr == nil {
+				sanitized := sanitizePgDumpForGenericImport(raw.String())
+				_, _ = io.WriteString(w, sanitized)
 				return nil
 			} else {
 				return fmt.Errorf("pg_dump local indisponivel e fallback docker falhou (%s): %w", container, derr)
@@ -4628,7 +4635,29 @@ func writePostgresDumpSQL(ctx context.Context, databaseURL string, w io.Writer) 
 		}
 		return err
 	}
+	sanitized := sanitizePgDumpForGenericImport(raw.String())
+	_, _ = io.WriteString(w, sanitized)
 	return nil
+}
+
+func sanitizePgDumpForGenericImport(raw string) string {
+	if strings.TrimSpace(raw) == "" {
+		return raw
+	}
+	// Remove meta-comandos exclusivos do psql (ex.: \restrict/\unrestrict),
+	// mantendo o dump compatível com importadores SQL genéricos (Adminer).
+	var out strings.Builder
+	sc := bufio.NewScanner(strings.NewReader(raw))
+	for sc.Scan() {
+		line := sc.Text()
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, `\restrict `) || strings.HasPrefix(trimmed, `\unrestrict `) {
+			continue
+		}
+		out.WriteString(line)
+		out.WriteByte('\n')
+	}
+	return out.String()
 }
 
 func runPgDump(ctx context.Context, bin string, fullArgs []string, pass string, pgArgs []string, w io.Writer) error {
@@ -4732,12 +4761,44 @@ func restorePostgresSQL(ctx context.Context, databaseURL string, r io.Reader) er
 		"--single-transaction",
 		"--set", "ON_ERROR_STOP=1",
 	}
-	cmd := exec.CommandContext(ctx, "psql", args...)
+	payload, err := io.ReadAll(r)
+	if err != nil {
+		return fmt.Errorf("erro ao ler arquivo de restore: %w", err)
+	}
+	if err := runPSQLRestore(ctx, "psql", nil, pass, args, payload); err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "psql nao encontrado") {
+			container := strings.TrimSpace(os.Getenv("HONDAGO_POSTGRES_CONTAINER"))
+			if container == "" {
+				container = "hondago-postgres"
+			}
+			dockerArgs := []string{"exec", "-i"}
+			if pass != "" {
+				dockerArgs = append(dockerArgs, "-e", "PGPASSWORD="+pass)
+			}
+			dockerArgs = append(dockerArgs, container, "psql")
+			dockerArgs = append(dockerArgs, args...)
+			if derr := runPSQLRestore(ctx, "docker", dockerArgs, "", nil, payload); derr == nil {
+				return nil
+			} else {
+				return fmt.Errorf("psql local indisponivel e fallback docker falhou (%s): %w", container, derr)
+			}
+		}
+		return err
+	}
+	return nil
+}
+
+func runPSQLRestore(ctx context.Context, bin string, fullArgs []string, pass string, psqlArgs []string, payload []byte) error {
+	args := fullArgs
+	if args == nil {
+		args = psqlArgs
+	}
+	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Env = os.Environ()
 	if pass != "" {
 		cmd.Env = append(cmd.Env, "PGPASSWORD="+pass)
 	}
-	cmd.Stdin = r
+	cmd.Stdin = strings.NewReader(string(payload))
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -4746,7 +4807,10 @@ func restorePostgresSQL(ctx context.Context, databaseURL string, r io.Reader) er
 			msg = err.Error()
 		}
 		if errors.Is(err, exec.ErrNotFound) {
-			return fmt.Errorf("psql nao encontrado no sistema. Instale cliente Postgres ou execute em ambiente com psql")
+			if bin == "psql" {
+				return fmt.Errorf("psql nao encontrado no sistema")
+			}
+			return fmt.Errorf("%s nao encontrado no sistema", bin)
 		}
 		return fmt.Errorf("%s", msg)
 	}

@@ -321,7 +321,20 @@ func openPostgres(databaseURL string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	return &Store{DB: db, driver: "pgx"}, nil
+	store := &Store{DB: db, driver: "pgx"}
+	if err := store.EnsureLegacySchema(context.Background()); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := store.EnsureDefaultAppUser(context.Background()); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := store.MigrateAuthPasswordsToEncrypted(context.Background()); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return store, nil
 }
 
 func (s *Store) bind(query string) string {
