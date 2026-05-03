@@ -331,8 +331,12 @@ func (s *Store) EnsureLegacySchema(ctx context.Context) error {
 	if err := s.ensureOperationalIndexes(ctx); err != nil {
 		return err
 	}
-	if err := s.ensureNationalHolidaysSeed(ctx); err != nil { return err }
-	if err := s.ensureRolesSeed(ctx); err != nil { return err }
+	if err := s.ensureNationalHolidaysSeed(ctx); err != nil {
+		return err
+	}
+	if err := s.ensureRolesSeed(ctx); err != nil {
+		return err
+	}
 	if err := s.backfillSolicitacoesDateParts(ctx); err != nil {
 		return err
 	}
@@ -803,7 +807,6 @@ VALUES (?, ?, 'Nacional', 1, ?, ?)
 	return nil
 }
 
-
 func (s *Store) ensureRolesSeed(ctx context.Context) error {
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
@@ -1078,6 +1081,29 @@ func (s *Store) tableExistsTx(ctx context.Context, tx *sql.Tx, tableName string)
 }
 
 func (s *Store) tableColumns(ctx context.Context, tableName string) ([]string, error) {
+	if s != nil && s.IsPostgres() {
+		rows, err := s.DB.QueryContext(ctx, `
+SELECT column_name
+FROM information_schema.columns
+WHERE table_schema = 'public' AND table_name = $1
+ORDER BY ordinal_position
+`, tableName)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		cols := make([]string, 0, 16)
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				return nil, err
+			}
+			cols = append(cols, name)
+		}
+		return cols, rows.Err()
+	}
+
 	rows, err := s.DB.QueryContext(ctx, "PRAGMA table_info("+quoteIdent(tableName)+")")
 	if err != nil {
 		return nil, err
@@ -1160,10 +1186,3 @@ func equalColumns(actual, expected []string) bool {
 func quoteIdent(name string) string {
 	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }
-
-
-
-
-
-
-
