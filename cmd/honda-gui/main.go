@@ -3138,17 +3138,11 @@ WHERE `+whereClause+`
 }
 
 func slaMinutesExpr(store *db.Store) string {
-	if store != nil && store.IsPostgres() {
-		return "EXTRACT(EPOCH FROM (served_at - requested_at)) / 60.0"
-	}
-	return "(julianday(served_at) - julianday(requested_at)) * 24.0 * 60.0"
+	return "EXTRACT(EPOCH FROM (served_at - requested_at)) / 60.0"
 }
 
 func slaNonNegativeCond(store *db.Store) string {
-	if store != nil && store.IsPostgres() {
-		return "served_at >= requested_at"
-	}
-	return "julianday(served_at) >= julianday(requested_at)"
+	return "served_at >= requested_at"
 }
 
 func percentilesFromSamples(samples []float64) (float64, float64) {

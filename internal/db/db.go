@@ -698,29 +698,17 @@ func (s *Store) SaveAppUser(ctx context.Context, r AppUserRecord, plainPassword 
 		return 0, err
 	}
 	now := formatDateTimeUTCMinus3(nowUTCMinus3())
-	if s.driver == "pgx" {
-		var id int64
-		err = s.DB.QueryRowContext(
-			ctx,
-			s.bind(`INSERT INTO users (username, password_hash, full_name, cpf, branch, email, phone, mfa_enabled, mfa_secret, role, is_active, failed_login_attempts, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?) RETURNING id`),
-			username, hash, displayName, nullableTrimmed(r.CPF), nullableTrimmed(r.Filial), nullableTrimmed(r.Email), nullableTrimmed(r.Phone), r.MFAEnabled, nullableTrimmed(r.MFASecret), role, isActive, now, now,
-		).Scan(&id)
-		if err != nil {
-			return 0, err
-		}
-		return id, nil
-	}
-	res, err := s.DB.ExecContext(
+	var id int64
+	err = s.DB.QueryRowContext(
 		ctx,
 		s.bind(`INSERT INTO users (username, password_hash, full_name, cpf, branch, email, phone, mfa_enabled, mfa_secret, role, is_active, failed_login_attempts, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`),
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?) RETURNING id`),
 		username, hash, displayName, nullableTrimmed(r.CPF), nullableTrimmed(r.Filial), nullableTrimmed(r.Email), nullableTrimmed(r.Phone), r.MFAEnabled, nullableTrimmed(r.MFASecret), role, isActive, now, now,
-	)
+	).Scan(&id)
 	if err != nil {
 		return 0, err
 	}
-	return res.LastInsertId()
+	return id, nil
 }
 
 func (s *Store) DeleteAppUser(ctx context.Context, id int64) error {
@@ -797,7 +785,7 @@ func (s *Store) EnsureAuthControlColumns(ctx context.Context) error {
 	var authExists int
 	if err := s.DB.QueryRowContext(
 		ctx,
-		"SELECT 1 FROM sqlite_master WHERE type='table' AND name='api_accounts' LIMIT 1",
+		"SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='api_accounts' LIMIT 1",
 	).Scan(&authExists); err != nil {
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("tabela 'api_accounts' nÃƒÆ’Ã‚Â£o encontrada no banco selecionado")
@@ -815,18 +803,18 @@ func (s *Store) EnsureAuthControlColumns(ctx context.Context) error {
 	}
 
 	exists := map[string]bool{}
-	rows, err := s.DB.QueryContext(ctx, "PRAGMA table_info(api_accounts)")
+	rows, err := s.DB.QueryContext(ctx, `
+SELECT column_name
+FROM information_schema.columns
+WHERE table_schema='public' AND table_name='api_accounts'
+`)
 	if err != nil {
-		return fmt.Errorf("pragma api_accounts table: %w", err)
+		return fmt.Errorf("check columns api_accounts: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var cid int
-		var name, ctype string
-		var notnull int
-		var dflt sql.NullString
-		var pk int
-		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+		var name string
+		if err := rows.Scan(&name); err != nil {
 			return err
 		}
 		exists[name] = true
@@ -1786,31 +1774,18 @@ WHERE id=?`),
 		strings.TrimSpace(r.Situacao),
 		strings.TrimSpace(r.LanceContemplacao),
 	}
-	if s.driver == "pgx" {
-		var id int64
-		err = s.DB.QueryRowContext(
-			ctx,
-			s.bind(`INSERT INTO requests
+	var id int64
+	err = s.DB.QueryRowContext(
+		ctx,
+		s.bind(`INSERT INTO requests
  (requested_at, requester_user_id, vendor_identity_id, api_account_id, requested_date, requested_time, branch, seller_name, cpf, model_name, licensed, installments, bid_percent, with_restriction, group_code, notes, requested_quota_id, served_group, quota_rd, served_at, served_date, served_time, status, contemplation_bid)
  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`),
-			insertArgs...,
-		).Scan(&id)
-		if err != nil {
-			return 0, err
-		}
-		return id, nil
-	}
-	res, err := s.DB.ExecContext(
-		ctx,
-		`INSERT INTO requests
- (requested_at, requester_user_id, vendor_identity_id, api_account_id, requested_date, requested_time, branch, seller_name, cpf, model_name, licensed, installments, bid_percent, with_restriction, group_code, notes, requested_quota_id, served_group, quota_rd, served_at, served_date, served_time, status, contemplation_bid)
- VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		insertArgs...,
-	)
+	).Scan(&id)
 	if err != nil {
 		return 0, err
 	}
-	return res.LastInsertId()
+	return id, nil
 }
 
 func (s *Store) getCurrentSolicitacaoRelationIDs(ctx context.Context, requestID int64) (requestRelationIDs, error) {
