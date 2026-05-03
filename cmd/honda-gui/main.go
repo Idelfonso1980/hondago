@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
@@ -4541,8 +4542,17 @@ func (a *app) handleDBBackup(w http.ResponseWriter, r *http.Request) {
 		fileName := fmt.Sprintf("honda_go_postgres_backup_%s.sql", time.Now().Format("20060102_150405"))
 		var buf strings.Builder
 		if err := writePostgresDumpSQL(r.Context(), cfg.DatabaseURL, &buf); err != nil {
-			writeErr(w, http.StatusInternalServerError, fmt.Errorf("falha ao gerar backup postgres: %w", err))
-			return
+			// Fallback hospedado: gera dump SQL interno sem depender de pg_dump/docker local.
+			if strings.Contains(strings.ToLower(err.Error()), "pg_dump") || strings.Contains(strings.ToLower(err.Error()), "docker") {
+				buf.Reset()
+				if berr := store.BackupSQL(r.Context(), &buf); berr != nil {
+					writeErr(w, http.StatusInternalServerError, fmt.Errorf("falha ao gerar backup postgres: %w", berr))
+					return
+				}
+			} else {
+				writeErr(w, http.StatusInternalServerError, fmt.Errorf("falha ao gerar backup postgres: %w", err))
+				return
+			}
 		}
 		w.Header().Set("Content-Type", "application/sql")
 		w.Header().Set("Content-Disposition", "attachment; filename="+fileName)
@@ -4701,9 +4711,22 @@ func (a *app) handleDBRestore(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if store.IsPostgres() {
-		if err := restorePostgresSQL(r.Context(), cfg.DatabaseURL, file); err != nil {
-			writeErr(w, http.StatusInternalServerError, fmt.Errorf("erro ao restaurar postgres: %w", err))
+		payload, readErr := io.ReadAll(file)
+		if readErr != nil {
+			writeErr(w, http.StatusBadRequest, fmt.Errorf("erro ao ler arquivo de restore: %w", readErr))
 			return
+		}
+		if err := restorePostgresSQL(r.Context(), cfg.DatabaseURL, bytes.NewReader(payload)); err != nil {
+			// Fallback hospedado: restore SQL interno sem psql/docker local.
+			if strings.Contains(strings.ToLower(err.Error()), "psql") || strings.Contains(strings.ToLower(err.Error()), "docker") {
+				if rerr := store.RestoreSQL(r.Context(), bytes.NewReader(payload)); rerr != nil {
+					writeErr(w, http.StatusInternalServerError, fmt.Errorf("erro ao restaurar postgres: %w", rerr))
+					return
+				}
+			} else {
+				writeErr(w, http.StatusInternalServerError, fmt.Errorf("erro ao restaurar postgres: %w", err))
+				return
+			}
 		}
 	} else {
 		if err := store.RestoreSQL(r.Context(), file); err != nil {
@@ -4743,32 +4766,11 @@ func getDBCapabilities(store *db.Store) dbCapabilities {
 			RestoreAvailable: true,
 		}
 	}
-	backupAvailable := false
-	backupReason := ""
-	restoreAvailable := false
-	restoreReason := ""
-
-	if _, err := exec.LookPath("pg_dump"); err == nil {
-		backupAvailable = true
-	} else if _, err := exec.LookPath("docker"); err == nil {
-		backupAvailable = true
-	} else {
-		backupReason = "backup indisponivel neste ambiente hospedado: use backup direto no Postgres (pg_dump)."
-	}
-
-	if _, err := exec.LookPath("psql"); err == nil {
-		restoreAvailable = true
-	} else if _, err := exec.LookPath("docker"); err == nil {
-		restoreAvailable = true
-	} else {
-		restoreReason = "restore indisponivel neste ambiente hospedado: use restore direto no Postgres (Adminer/psql)."
-	}
-
 	return dbCapabilities{
-		BackupAvailable:  backupAvailable,
-		RestoreAvailable: restoreAvailable,
-		BackupReason:     backupReason,
-		RestoreReason:    restoreReason,
+		BackupAvailable:  true,
+		RestoreAvailable: true,
+		BackupReason:     "",
+		RestoreReason:    "",
 	}
 }
 

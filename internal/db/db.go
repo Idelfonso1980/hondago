@@ -4336,7 +4336,11 @@ func (s *Store) BackupSQL(ctx context.Context, w io.Writer) error {
 	tables := LegacyTableNames()
 
 	fmt.Fprintf(w, "-- Honda Go Backup SQL Generated at %s\n", formatDateTimeUTCMinus3(nowUTCMinus3()))
-	fmt.Fprintf(w, "PRAGMA foreign_keys = OFF;\n\n")
+	if s != nil && s.IsPostgres() {
+		fmt.Fprintf(w, "BEGIN;\n\n")
+	} else {
+		fmt.Fprintf(w, "PRAGMA foreign_keys = OFF;\n\n")
+	}
 
 	// Deletes in reverse order to avoid FK issues
 	for i := len(tables) - 1; i >= 0; i-- {
@@ -4389,7 +4393,11 @@ func (s *Store) BackupSQL(ctx context.Context, w io.Writer) error {
 		fmt.Fprintf(w, "\n")
 	}
 
-	fmt.Fprintf(w, "PRAGMA foreign_keys = ON;\n")
+	if s != nil && s.IsPostgres() {
+		fmt.Fprintf(w, "COMMIT;\n")
+	} else {
+		fmt.Fprintf(w, "PRAGMA foreign_keys = ON;\n")
+	}
 	return nil
 }
 
@@ -4438,9 +4446,15 @@ func (s *Store) RestoreSQL(ctx context.Context, r io.Reader) error {
 		if line == "" || strings.HasPrefix(line, "--") {
 			continue
 		}
+		if strings.HasPrefix(line, `\`) {
+			continue
+		}
 		// Skip SQLite specific pragmas if we want to be postgres-friendly,
 		// but since this is for restore in SQLite, we keep them or handle them.
 		if strings.HasPrefix(strings.ToUpper(line), "PRAGMA") {
+			if s != nil && s.IsPostgres() {
+				continue
+			}
 			// We can execute them, they won't hurt in SQLite.
 		}
 
