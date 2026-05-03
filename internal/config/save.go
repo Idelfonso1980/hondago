@@ -95,7 +95,7 @@ func setBooking(out map[string]string, in BookingConfig) {
 func setSystem(configPath string, out map[string]string, in *Config) {
 	databasePath := strings.TrimSpace(in.DatabasePath)
 	if databasePath == "" {
-		databasePath = "honda.sqlite"
+		databasePath = "honda.db"
 	}
 	if filepath.IsAbs(databasePath) {
 		configDir := filepath.Dir(configPath)

@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/crypto/bcrypt"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
 )
 
@@ -268,14 +268,15 @@ type CotaFilter struct {
 }
 
 func Open(path string) (*Store, error) {
-	return OpenWithURL(path, "")
+	return nil, fmt.Errorf("modo sqlite desativado: use HONDAGO_DATABASE_URL (postgres)")
 }
 
 func OpenWithURL(path, databaseURL string) (*Store, error) {
-	if strings.TrimSpace(databaseURL) != "" {
-		return openPostgres(databaseURL)
+	_ = path
+	if strings.TrimSpace(databaseURL) == "" {
+		return nil, fmt.Errorf("HONDAGO_DATABASE_URL nao configurado")
 	}
-	return openSQLite(path)
+	return openPostgres(databaseURL)
 }
 
 func openSQLite(path string) (*Store, error) {
@@ -643,7 +644,7 @@ func (s *Store) SaveAppUser(ctx context.Context, r AppUserRecord, plainPassword 
 			now := formatDateTimeUTCMinus3(nowUTCMinus3())
 			_, err = s.DB.ExecContext(
 				ctx,
-			s.bind(`UPDATE users
+				s.bind(`UPDATE users
 				 SET username=?,
 				     password_hash=?,
 				     full_name=?,
@@ -668,7 +669,7 @@ func (s *Store) SaveAppUser(ctx context.Context, r AppUserRecord, plainPassword 
 		now := formatDateTimeUTCMinus3(nowUTCMinus3())
 		_, err = s.DB.ExecContext(
 			ctx,
-		s.bind(`UPDATE users
+			s.bind(`UPDATE users
 			 SET username=?,
 			     full_name=?,
 			     cpf=?,
@@ -1314,20 +1315,20 @@ CAST(COALESCE(contemplation_bid, '') AS TEXT) AS contemplation_bid`
 		if col == "" {
 			like := "%" + q + "%"
 			whereParts = append(whereParts, `(CAST(id AS TEXT)=?
-   OR CAST(COALESCE(branch, '') AS TEXT) ` + textLike + ` ?
-   OR CAST(COALESCE(seller_name, '') AS TEXT) ` + textLike + ` ?
-   OR CAST(COALESCE(cpf, '') AS TEXT) ` + textLike + ` ?
-   OR CAST(COALESCE(model_name, '') AS TEXT) ` + textLike + ` ?
-   OR CAST(COALESCE(licensed, '') AS TEXT) ` + textLike + ` ?
+   OR CAST(COALESCE(branch, '') AS TEXT) `+textLike+` ?
+   OR CAST(COALESCE(seller_name, '') AS TEXT) `+textLike+` ?
+   OR CAST(COALESCE(cpf, '') AS TEXT) `+textLike+` ?
+   OR CAST(COALESCE(model_name, '') AS TEXT) `+textLike+` ?
+   OR CAST(COALESCE(licensed, '') AS TEXT) `+textLike+` ?
    OR CAST(installments AS TEXT) LIKE ?
    OR CAST(bid_percent AS TEXT) LIKE ?
-   OR CAST(COALESCE(with_restriction, '') AS TEXT) ` + textLike + ` ?
+   OR CAST(COALESCE(with_restriction, '') AS TEXT) `+textLike+` ?
    OR CAST(group_code AS TEXT) LIKE ?
-   OR CAST(COALESCE(notes, '') AS TEXT) ` + textLike + ` ?
+   OR CAST(COALESCE(notes, '') AS TEXT) `+textLike+` ?
    OR CAST(served_group AS TEXT) LIKE ?
    OR CAST(requested_quota_id AS TEXT) LIKE ?
-   OR CAST(COALESCE(quota_rd, '') AS TEXT) ` + textLike + ` ?
-   OR CAST(COALESCE(status, '') AS TEXT) ` + textLike + ` ?)`)
+   OR CAST(COALESCE(quota_rd, '') AS TEXT) `+textLike+` ?
+   OR CAST(COALESCE(status, '') AS TEXT) `+textLike+` ?)`)
 			args = append(args, q, like, like, like, like, like, like, like, like, like, like, like, like, like, like)
 		} else {
 			numericCols := map[string]string{

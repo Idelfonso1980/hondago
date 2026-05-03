@@ -1033,8 +1033,8 @@
                   Gere um arquivo SQL compat&iacute;vel com SQLite e Postgres para salvaguardar seus dados.
                 </p>
                 <div class="form-footer" style="justify-content: flex-start; gap: 15px;">
-                  <button class="btn btn-execute" onclick="downloadDatabaseBackup()">Gerar Backup (.sql)</button>
-                  <button class="btn" onclick="document.getElementById('db_restore_file').click()">Restaurar do Backup</button>
+                  <button id="db_backup_btn" class="btn btn-execute" onclick="downloadDatabaseBackup()">Gerar Backup (.sql)</button>
+                  <button id="db_restore_btn" class="btn" onclick="document.getElementById('db_restore_file').click()">Restaurar do Backup</button>
                   <input type="file" id="db_restore_file" style="display:none" onchange="uploadDatabaseRestore(this)" accept=".sql" />
                 </div>
               </div>

@@ -30,11 +30,11 @@ type BookingConfig struct {
 }
 
 type Config struct {
-	DatabasePath string
-	DatabaseURL  string
-	APIBaseURL   string
+	DatabasePath  string
+	DatabaseURL   string
+	APIBaseURL    string
 	CrawlerAPIURL string
-	Booking      BookingConfig
+	Booking       BookingConfig
 }
 
 func LoadFromINI(path string) (*Config, error) {
@@ -44,11 +44,11 @@ func LoadFromINI(path string) (*Config, error) {
 		return nil, err
 	}
 	configDir := filepath.Dir(path)
-	defaultDBPath := filepath.Join(configDir, "honda.sqlite")
+	defaultDBPath := filepath.Join(configDir, "honda.db")
 	booking := raw["BOOKING"]
 	cfg := &Config{
-		DatabasePath: defaultDBPath,
-		APIBaseURL:   "https://apigate.hondaservicosfinanceiros.com.br/bff-plataforma-vendas/v1",
+		DatabasePath:  defaultDBPath,
+		APIBaseURL:    "https://apigate.hondaservicosfinanceiros.com.br/bff-plataforma-vendas/v1",
 		CrawlerAPIURL: "https://apigate.hondaservicosfinanceiros.com.br/bff-plataforma-vendas/v1/valorlance",
 		Booking: BookingConfig{
 			Modelo:              getStr(booking, "modelo", ""),

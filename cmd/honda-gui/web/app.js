@@ -3851,6 +3851,41 @@
       }
     }
 
+    async function refreshDBRestoreCapabilities() {
+      const backupBtn = document.getElementById("db_backup_btn");
+      const restoreBtn = document.getElementById("db_restore_btn");
+      const restoreInput = document.getElementById("db_restore_file");
+      if (!restoreBtn || !restoreInput || !backupBtn) return;
+
+      try {
+        const res = await fetch("/api/db/restore-capabilities", { method: "GET" });
+        const data = await res.json();
+        const restoreAvailable = !!(res.ok && data && data.ok !== false && data.restore_available);
+        const backupAvailable = !!(res.ok && data && data.ok !== false && data.backup_available);
+
+        if (!backupAvailable) {
+          backupBtn.disabled = true;
+          backupBtn.title = (data && data.backup_reason) ? data.backup_reason : "Backup indisponivel neste ambiente.";
+        } else {
+          backupBtn.disabled = false;
+          backupBtn.title = "";
+        }
+
+        if (!restoreAvailable) {
+          restoreBtn.disabled = true;
+          restoreBtn.title = (data && data.restore_reason) ? data.restore_reason : "Restore indisponivel neste ambiente.";
+        } else {
+          restoreBtn.disabled = false;
+          restoreBtn.title = "";
+        }
+      } catch (_) {
+        backupBtn.disabled = true;
+        backupBtn.title = "Backup indisponivel neste ambiente.";
+        restoreBtn.disabled = true;
+        restoreBtn.title = "Restore indisponivel neste ambiente.";
+      }
+    }
+
 
     async function authenticateSelectedUser(){
       const id = Number(document.getElementById("auth_id").value || 0);
@@ -3874,6 +3909,7 @@
         return;
       }
       fill(data);
+      await refreshDBRestoreCapabilities();
       setStatus("Config carregada");
     }
 

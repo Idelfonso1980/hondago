@@ -120,6 +120,7 @@ var methodPolicy = map[string][]string{
 	"/api/db/tables/drop":                   {http.MethodPost},
 	"/api/db/backup":                        {http.MethodGet},
 	"/api/db/restore":                       {http.MethodPost},
+	"/api/db/restore-capabilities":          {http.MethodGet},
 	"/api/stop":                             {http.MethodPost},
 	"/api/logs":                             {http.MethodGet},
 	"/api/logs/clear":                       {http.MethodPost},
@@ -146,6 +147,7 @@ var criticalPermissionPolicy = map[string]string{
 	"/api/db/tables/drop":               "configs:manage",
 	"/api/db/backup":                    "configs:manage",
 	"/api/db/restore":                   "configs:manage",
+	"/api/db/restore-capabilities":      "configs:manage",
 	"/api/rbac/matrix":                  "roles:manage",
 	"/api/rbac/update":                  "roles:manage",
 	"/api/audit/list":                   "audit:view",
@@ -170,6 +172,13 @@ type fixedWindowRateLimiter struct {
 type rateState struct {
 	Count      int
 	WindowEnds time.Time
+}
+
+type dbCapabilities struct {
+	BackupAvailable  bool
+	RestoreAvailable bool
+	BackupReason     string
+	RestoreReason    string
 }
 
 var endpointRateLimitPolicy = map[string]rateRule{
@@ -712,6 +721,7 @@ func main() {
 	mux.HandleFunc("/api/db/tables/drop", app.handleDBTablesDrop)
 	mux.HandleFunc("/api/db/backup", app.handleDBBackup)
 	mux.HandleFunc("/api/db/restore", app.handleDBRestore)
+	mux.HandleFunc("/api/db/restore-capabilities", app.handleDBRestoreCapabilities)
 	mux.HandleFunc("/api/stop", app.handleStop)
 	mux.HandleFunc("/api/logs", app.handleLogs)
 	mux.HandleFunc("/api/logs/clear", app.handleClearLogs)
@@ -1549,13 +1559,11 @@ func (a *app) handleAuth(w http.ResponseWriter, r *http.Request) {
 func (a *app) handleAuthUsersSearch(w http.ResponseWriter, r *http.Request) {
 	search := strings.TrimSpace(r.URL.Query().Get("q"))
 
-	cfg, store, err := a.openStoreFromCurrentConfig()
+	_, store, err := a.openStoreFromCurrentConfig()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	_ = cfg
-
 	records, err := store.SearchAuthRecords(r.Context(), search, 500)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
@@ -4444,14 +4452,9 @@ func (a *app) handleDBTablesCreate(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAdmin(w, r) {
 		return
 	}
-	dbPath, err := a.databasePathFromPayload(r)
+	cfg, store, err := a.openStoreFromCurrentConfig()
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	store, err := db.Open(dbPath)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, fmt.Errorf("open db: %w", err))
+		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
 
@@ -4461,12 +4464,12 @@ func (a *app) handleDBTablesCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Auditoria
-	a.logAudit(r, "DB_CREATE_TABLES", "database", dbPath, "", "")
+	a.logAudit(r, "DB_CREATE_TABLES", "database", strings.TrimSpace(cfg.DatabaseURL), "", "")
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":      true,
 		"message": fmt.Sprintf("Estrutura validada: %d tabela(s) sincronizada(s)", len(db.LegacyTableNames())),
-		"db_path": dbPath,
+		"db_path": strings.TrimSpace(cfg.DatabaseURL),
 	})
 }
 
@@ -4474,14 +4477,9 @@ func (a *app) handleDBTablesClear(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAdmin(w, r) {
 		return
 	}
-	dbPath, err := a.databasePathFromPayload(r)
+	cfg, store, err := a.openStoreFromCurrentConfig()
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	store, err := db.Open(dbPath)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, fmt.Errorf("open db: %w", err))
+		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
 
@@ -4492,12 +4490,12 @@ func (a *app) handleDBTablesClear(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Auditoria
-	a.logAudit(r, "DB_CLEAR_DATA", "database", dbPath, "", "")
+	a.logAudit(r, "DB_CLEAR_DATA", "database", strings.TrimSpace(cfg.DatabaseURL), "", "")
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":      true,
 		"message": fmt.Sprintf("Dados removidos de %d tabela(s)", count),
-		"db_path": dbPath,
+		"db_path": strings.TrimSpace(cfg.DatabaseURL),
 		"count":   count,
 	})
 }
@@ -4506,14 +4504,9 @@ func (a *app) handleDBTablesDrop(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAdmin(w, r) {
 		return
 	}
-	dbPath, err := a.databasePathFromPayload(r)
+	cfg, store, err := a.openStoreFromCurrentConfig()
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	store, err := db.Open(dbPath)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, fmt.Errorf("open db: %w", err))
+		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
 
@@ -4524,12 +4517,12 @@ func (a *app) handleDBTablesDrop(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Auditoria
-	a.logAudit(r, "DB_DROP_TABLES", "database", dbPath, "", "")
+	a.logAudit(r, "DB_DROP_TABLES", "database", strings.TrimSpace(cfg.DatabaseURL), "", "")
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":      true,
 		"message": fmt.Sprintf("Tabela(s) removida(s): %d", count),
-		"db_path": dbPath,
+		"db_path": strings.TrimSpace(cfg.DatabaseURL),
 		"count":   count,
 	})
 }
@@ -4723,6 +4716,62 @@ func (a *app) handleDBRestore(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": "Banco de dados restaurado com sucesso"})
 }
 
+func (a *app) handleDBRestoreCapabilities(w http.ResponseWriter, r *http.Request) {
+	if !a.requireAdmin(w, r) {
+		return
+	}
+	_, store, err := a.openStoreFromCurrentConfig()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	caps := getDBCapabilities(store)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":                true,
+		"backup_available":  caps.BackupAvailable,
+		"restore_available": caps.RestoreAvailable,
+		"backup_reason":     caps.BackupReason,
+		"restore_reason":    caps.RestoreReason,
+		"reason":            caps.RestoreReason,
+	})
+}
+
+func getDBCapabilities(store *db.Store) dbCapabilities {
+	if !store.IsPostgres() {
+		return dbCapabilities{
+			BackupAvailable:  true,
+			RestoreAvailable: true,
+		}
+	}
+	backupAvailable := false
+	backupReason := ""
+	restoreAvailable := false
+	restoreReason := ""
+
+	if _, err := exec.LookPath("pg_dump"); err == nil {
+		backupAvailable = true
+	} else if _, err := exec.LookPath("docker"); err == nil {
+		backupAvailable = true
+	} else {
+		backupReason = "backup indisponivel neste ambiente hospedado: use backup direto no Postgres (pg_dump)."
+	}
+
+	if _, err := exec.LookPath("psql"); err == nil {
+		restoreAvailable = true
+	} else if _, err := exec.LookPath("docker"); err == nil {
+		restoreAvailable = true
+	} else {
+		restoreReason = "restore indisponivel neste ambiente hospedado: use restore direto no Postgres (Adminer/psql)."
+	}
+
+	return dbCapabilities{
+		BackupAvailable:  backupAvailable,
+		RestoreAvailable: restoreAvailable,
+		BackupReason:     backupReason,
+		RestoreReason:    restoreReason,
+	}
+}
+
 func restorePostgresSQL(ctx context.Context, databaseURL string, r io.Reader) error {
 	dsn := strings.TrimSpace(databaseURL)
 	if dsn == "" {
@@ -4842,14 +4891,16 @@ func (a *app) openStoreFromCurrentConfig() (*config.Config, *db.Store, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("load config: %w", err)
 	}
+	if strings.TrimSpace(cfg.DatabaseURL) == "" {
+		return nil, nil, fmt.Errorf("HONDAGO_DATABASE_URL nao configurado; este build opera somente com Postgres")
+	}
 
-	// Se o store jÃƒÂ¡ existe e o caminho do banco nÃƒÂ£o mudou, reutiliza
-	if a.store != nil && a.cfg != nil && a.cfg.DatabasePath == cfg.DatabasePath {
+	// Reutiliza apenas se a conexao-alvo nao mudou.
+	if a.store != nil && a.cfg != nil && strings.TrimSpace(a.cfg.DatabaseURL) == strings.TrimSpace(cfg.DatabaseURL) {
 		a.cfg = cfg
 		return a.cfg, a.store, nil
 	}
 
-	// Se havia um store anterior (com outro path), fecha antes de abrir o novo
 	if a.store != nil {
 		_ = a.store.Close()
 	}
@@ -4901,7 +4952,7 @@ func (a *app) databasePathFromPayload(r *http.Request) (string, error) {
 	if err == nil && strings.TrimSpace(cfg.DatabasePath) != "" {
 		return filepath.Clean(cfg.DatabasePath), nil
 	}
-	return filepath.Clean(filepath.Join(cfgDir, "honda.sqlite")), nil
+	return filepath.Clean(filepath.Join(cfgDir, "honda.db")), nil
 }
 
 func authRecordToPayload(r *db.AuthRecord) authUserPayload {
@@ -5323,7 +5374,7 @@ func (a *app) payloadToConfig(configPath string, p *uiPayload) (*config.Config, 
 	if err != nil {
 		configDir := filepath.Dir(configPath)
 		loaded = &config.Config{
-			DatabasePath: filepath.Join(configDir, "honda.sqlite"),
+			DatabasePath: filepath.Join(configDir, "honda.db"),
 			APIBaseURL:   defaultAPIBaseURL,
 		}
 	}
