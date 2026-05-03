@@ -2633,7 +2633,8 @@ FROM requests
 WHERE `+whereClause+`
   AND `+atendidaCond+`
   AND requested_at IS NOT NULL AND TRIM(CAST(requested_at AS TEXT)) <> ''
-  AND served_at IS NOT NULL AND TRIM(CAST(served_at AS TEXT)) <> ''`), whereArgs...).Scan(&slaAvgMin); err != nil {
+  AND served_at IS NOT NULL AND TRIM(CAST(served_at AS TEXT)) <> ''
+  AND `+slaNonNegativeCond(store)+``), whereArgs...).Scan(&slaAvgMin); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -2803,7 +2804,8 @@ FROM requests
 WHERE `+prevWhere+`
   AND `+atendidaCond+`
   AND requested_at IS NOT NULL AND TRIM(CAST(requested_at AS TEXT)) <> ''
-  AND served_at IS NOT NULL AND TRIM(CAST(served_at AS TEXT)) <> ''`), prevArgs...).Scan(&prevSla)
+  AND served_at IS NOT NULL AND TRIM(CAST(served_at AS TEXT)) <> ''
+  AND `+slaNonNegativeCond(store)+``), prevArgs...).Scan(&prevSla)
 	var prevLance sql.NullFloat64
 	_ = store.DB.QueryRowContext(r.Context(), store.Rebind(`
 SELECT AVG(bid_percent) FROM requests
