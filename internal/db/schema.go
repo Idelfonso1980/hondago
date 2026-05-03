@@ -567,9 +567,12 @@ func (s *Store) ensurePostgresSchemaBootstrap(ctx context.Context) error {
 		`ALTER TABLE app_sessions DROP CONSTRAINT IF EXISTS fk_app_sessions_user`,
 		`ALTER TABLE app_sessions ADD CONSTRAINT fk_app_sessions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE`,
 		`CREATE INDEX IF NOT EXISTS idx_appuser_username ON users(username)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS ux_users_username ON users(username)`,
 		`CREATE INDEX IF NOT EXISTS idx_appuser_cpf ON users(cpf)`,
 		`CREATE INDEX IF NOT EXISTS idx_appuser_filial ON users(branch)`,
 		`CREATE INDEX IF NOT EXISTS idx_appuser_role ON users(role)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS ux_roles_name ON roles(name)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS ux_app_sessions_token ON app_sessions(token)`,
 		`CREATE INDEX IF NOT EXISTS idx_gruposativos_grupo ON active_groups(group_code)`,
 		`CREATE INDEX IF NOT EXISTS idx_gruposativos_vencimento ON active_groups(due_day)`,
 		`CREATE INDEX IF NOT EXISTS idx_gruposativos_status ON active_groups(status)`,
@@ -691,6 +694,39 @@ SELECT EXISTS (
 				return fmt.Errorf("align sequence for %s.id: %w", table, err)
 			}
 		}
+	}
+
+	// Garantias adicionais de integridade lógica usadas no login/sessão.
+	var dupUsernames int64
+	if err := s.DB.QueryRowContext(ctx, `
+SELECT COUNT(1)
+FROM (
+  SELECT username
+  FROM public.users
+  WHERE COALESCE(TRIM(username), '') <> ''
+  GROUP BY username
+  HAVING COUNT(1) > 1
+) d`).Scan(&dupUsernames); err != nil {
+		return fmt.Errorf("check duplicated usernames on users: %w", err)
+	}
+	if dupUsernames > 0 {
+		return fmt.Errorf("tabela users possui usernames duplicados (%d); execute saneamento antes de iniciar", dupUsernames)
+	}
+
+	var dupSessionTokens int64
+	if err := s.DB.QueryRowContext(ctx, `
+SELECT COUNT(1)
+FROM (
+  SELECT token
+  FROM public.app_sessions
+  WHERE COALESCE(TRIM(token), '') <> ''
+  GROUP BY token
+  HAVING COUNT(1) > 1
+) d`).Scan(&dupSessionTokens); err != nil {
+		return fmt.Errorf("check duplicated tokens on app_sessions: %w", err)
+	}
+	if dupSessionTokens > 0 {
+		return fmt.Errorf("tabela app_sessions possui tokens duplicados (%d); execute saneamento antes de iniciar", dupSessionTokens)
 	}
 
 	return nil

@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -5461,7 +5462,49 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 
 func writeErr(w http.ResponseWriter, status int, err error) {
-	writeJSON(w, status, runResponse{OK: false, Message: err.Error()})
+	writeJSON(w, status, runResponse{OK: false, Message: sanitizeClientErrorMessage(status, err)})
+}
+
+var (
+	reIPv4Port       = regexp.MustCompile(`\b\d{1,3}(?:\.\d{1,3}){3}:\d+\b`)
+	reLocalhostPort  = regexp.MustCompile(`(?i)\blocalhost:\d+\b`)
+	reSQLStateSuffix = regexp.MustCompile(`\s*\(SQLSTATE [0-9A-Z]+\)\s*$`)
+	reMultiSpace     = regexp.MustCompile(`\s{2,}`)
+)
+
+func sanitizeClientErrorMessage(status int, err error) string {
+	if err == nil {
+		if status >= http.StatusInternalServerError {
+			return "Serviço temporariamente indisponível. Tente novamente em instantes."
+		}
+		return "Erro inesperado."
+	}
+	msg := strings.TrimSpace(err.Error())
+	if msg == "" {
+		if status >= http.StatusInternalServerError {
+			return "Serviço temporariamente indisponível. Tente novamente em instantes."
+		}
+		return "Erro inesperado."
+	}
+
+	// 5xx nunca deve expor detalhes internos (host/IP/porta/driver/SQLSTATE).
+	if status >= http.StatusInternalServerError {
+		return "Serviço temporariamente indisponível. Tente novamente em instantes."
+	}
+
+	// 4xx: mantém mensagem funcional, removendo detalhes técnicos sensíveis.
+	s := msg
+	s = reSQLStateSuffix.ReplaceAllString(s, "")
+	s = reIPv4Port.ReplaceAllString(s, "[host:porta]")
+	s = reLocalhostPort.ReplaceAllString(s, "[localhost:porta]")
+	lower := strings.ToLower(s)
+	if strings.Contains(lower, "failed to connect") ||
+		strings.Contains(lower, "dial tcp") ||
+		strings.Contains(lower, "connection refused") {
+		return "Serviço temporariamente indisponível. Tente novamente em instantes."
+	}
+	s = reMultiSpace.ReplaceAllString(s, " ")
+	return strings.TrimSpace(s)
 }
 
 func parseStrList(raw string) []string {
