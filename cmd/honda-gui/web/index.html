@@ -183,12 +183,99 @@
           <div class="panel-body">
             <div class="config-sections">
               <button type="button" class="config-tab active" data-reserve-tab="solicitacoes" onclick="openReserveSection('solicitacoes')">Solicita&ccedil;&otilde;es</button>
+              <button type="button" class="config-tab hidden" data-reserve-tab="home" onclick="openReserveSection('home')">Home</button>
               <button type="button" class="config-tab" data-reserve-tab="minhas" onclick="openReserveSection('minhas')">Minhas Reservas</button>
               <button type="button" class="config-tab" data-reserve-tab="reserved" onclick="openReserveSection('reserved')">Cotas Reservadas</button>
               <button type="button" class="config-tab" data-reserve-tab="mensagens" onclick="openReserveSection('mensagens')">Mensagens</button>
               <button type="button" class="config-tab" data-reserve-tab="config" onclick="openReserveSection('config')">Configura&ccedil;&atilde;o de Reserva</button>
               <button type="button" class="config-tab" data-reserve-tab="solicitar" onclick="openReserveSection('solicitar')">Solicitar Cota</button>
             </div>
+
+            <section id="reserve-home" class="reserve-section hidden">
+              <div class="auth-search-row home-search-row">
+                <div class="field">
+                  <label>Data Inicial</label>
+                  <input id="home_from" type="date" />
+                </div>
+                <div class="field">
+                  <label>Data Final</label>
+                  <input id="home_to" type="date" />
+                </div>
+                <div id="home_vendor_field" class="field hidden">
+                  <label>Vendedor</label>
+                  <input id="home_vendor" type="text" placeholder="Ex: DENILSON" />
+                </div>
+                <div style="display:flex; align-items:flex-end;">
+                  <button class="btn search-icon-btn" data-iconified="1" title="Pesquisar" aria-label="Pesquisar" onclick="loadSellerHome()">
+                    <span class="btn-ico" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" focusable="false">
+                        <circle cx="11" cy="11" r="7"></circle>
+                        <path d="M20 20l-3.5-3.5"></path>
+                      </svg>
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="seller-home-metrics">
+                <div class="seller-metric-card">
+                  <div class="k">Solicita&ccedil;&otilde;es</div>
+                  <div class="v" id="seller_home_total">0</div>
+                </div>
+                <div class="seller-metric-card">
+                  <div class="k">Atendidas</div>
+                  <div class="v" id="seller_home_atendidas">0</div>
+                </div>
+                <div class="seller-metric-card">
+                  <div class="k">Taxa Atendimento</div>
+                  <div class="v" id="seller_home_taxa">0%</div>
+                </div>
+                <div class="seller-metric-card">
+                  <div class="k">SLA M&eacute;dio</div>
+                  <div class="v" id="seller_home_sla">0 min</div>
+                </div>
+              </div>
+
+              <h4 class="seller-home-title">Acesso R&aacute;pido</h4>
+              <div class="seller-home-links">
+                <button type="button" class="seller-link-card" onclick="openReserveSection('solicitar')">
+                  <span>Solicita&ccedil;&atilde;o de cotas</span>
+                  <small>Solicitar Cotas</small>
+                </button>
+                <button type="button" class="seller-link-card" onclick="openReserveSection('minhas')">
+                  <span>Minhas Reservas</span>
+                  <small>Hist&oacute;rico do vendedor</small>
+                </button>
+                <a id="seller_link_sugestao" class="seller-link-card" href="https://drive.google.com/file/d/1K4oUsZjOFam8TV9Nt4sZWq2dKpue01fq/view?usp=drive_link" target="_blank" rel="noopener noreferrer">
+                  <span>Sugest&atilde;o de Cotas</span>
+                  <small>Arquivo externo</small>
+                </a>
+                <a id="seller_link_propostas" class="seller-link-card" href="https://docs.google.com/forms/d/e/1FAIpQLScEsyhkZE5vjUaRwxPvZ48o0WLKg33l9F0AU0WQpX-DiqWqmQ/viewform?usp=dialog" target="_blank" rel="noopener noreferrer">
+                  <span>Envio de Propostas</span>
+                  <small>Formul&aacute;rio externo</small>
+                </a>
+                <a class="seller-link-card" href="https://drive.google.com/file/d/10AAk9r6vGz4r67AyFr4jsqZKcd5W7lVZ/view?usp=drive_link" target="_blank" rel="noopener noreferrer">
+                  <span>Panfleto digital</span>
+                  <small>Arquivo externo</small>
+                </a>
+                <a class="seller-link-card" href="https://drive.google.com/file/d/1WQZA5Ir2QK0Mqu9UG4Jb80ixQDi3Hymp/view?usp=drive_link" target="_blank" rel="noopener noreferrer">
+                  <span>Tabela cota nova</span>
+                  <small>Arquivo externo</small>
+                </a>
+                <a class="seller-link-card" href="https://drive.google.com/file/d/1-aX5qQhveYH8Vq7NHubSJlyF6MZkaYDG/view?usp=drive_link" target="_blank" rel="noopener noreferrer">
+                  <span>Tabela AV | CDC</span>
+                  <small>Arquivo externo</small>
+                </a>
+                <a class="seller-link-card" href="https://dnq6a9s420k7s.cloudfront.net/6.9.2/app-release-version-6.9.2.apk" target="_blank" rel="noopener noreferrer">
+                  <span>Baixar CNH Digital - Android</span>
+                  <small>Download Android</small>
+                </a>
+                <a class="seller-link-card" href="itms-services://?action=download-manifest&url=https://d62sr8a3es1s0.cloudfront.net/6.9.2/manifest_6.9.2.plist" target="_blank" rel="noopener noreferrer">
+                  <span>Baixar CNH - iPhone</span>
+                  <small>Download iPhone</small>
+                </a>
+              </div>
+            </section>
 
             <section id="reserve-solicitacoes" class="reserve-section">
               <div class="auth-search-row sol-search-row">
@@ -260,9 +347,9 @@
                     <col style="width: 13ch;" />
                     <col style="width: 19ch;" />
                     <col style="width: 14ch;" />
-                    <col style="width: 6ch;" />
-                    <col style="width: 6ch;" />
-                    <col style="width: 6ch;" />
+                    <col style="width: 9ch;" />
+                    <col style="width: 7ch;" />
+                    <col style="width: 10ch;" />
                     <col style="width: 7ch;" />
                     <col style="width: 8ch;" />
                     <col style="width: 6ch;" />

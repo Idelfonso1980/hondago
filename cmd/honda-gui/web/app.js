@@ -45,7 +45,9 @@
     let currentUserFilial = "";
     let currentReserveSection = "solicitacoes";
     let dashboardLoaded = false;
+    let sellerHomeLoaded = false;
     let lastStatusFullText = "Status: Pronto";
+    let authRedirectInProgress = false;
 
     function getCookieValue(name) {
       const target = String(name || "").trim();
@@ -79,8 +81,33 @@
       if (!req.credentials) {
         req.credentials = "same-origin";
       }
-      return originalFetch(input, req);
+      return originalFetch(input, req).then((res) => {
+        try {
+          const url = typeof input === "string" ? input : String((input && input.url) || "");
+          const isApi = url.indexOf("/api/") >= 0;
+          const isAuthEndpoint =
+            url.indexOf("/api/app/login") >= 0 ||
+            url.indexOf("/api/app/mfa-login") >= 0 ||
+            url.indexOf("/api/app/session") >= 0;
+          if (isApi && !isAuthEndpoint && (res.status === 401 || res.status === 403) && isAuthenticated) {
+            forceRelogin("Sessão expirada. Faça login novamente.");
+          }
+        } catch (_) {}
+        return res;
+      });
     };
+
+    function forceRelogin(message){
+      if (authRedirectInProgress) return;
+      authRedirectInProgress = true;
+      isAuthenticated = false;
+      closeUserMenu();
+      showLoginOverlay(true);
+      const box = document.getElementById("loginError");
+      if (box) box.textContent = message || "Sessão expirada. Faça login novamente.";
+      setStatus("Deslogado");
+      setTimeout(() => { authRedirectInProgress = false; }, 1200);
+    }
 
     function formatStatusNumber(raw){
       const digits = String(raw || "").replace(/\D/g, "");
@@ -341,6 +368,25 @@
     function isVendedorRole(){
       return normalizeRoleValue(currentUserRole) === "vendedor";
     }
+    function isAdminRole(){
+      return normalizeRoleValue(currentUserRole) === "admin";
+    }
+    function canAccessReserveHome(){
+      return isVendedorRole() || isAdminRole();
+    }
+    function applyReserveTabOrder(){
+      const container = document.querySelector(".config-sections");
+      if (!container) return;
+      const byName = (name) => container.querySelector("[data-reserve-tab='" + name + "']");
+      let order = ["solicitacoes", "reserved", "mensagens", "config", "home", "minhas", "solicitar"];
+      if (isVendedorRole()) {
+        order = ["home", "minhas", "solicitar"];
+      }
+      for (const name of order) {
+        const el = byName(name);
+        if (el) container.appendChild(el);
+      }
+    }
 
     function applyRolePermissions(){
       const appUsersTab = document.querySelector("[data-config-tab='appusers']");
@@ -409,6 +455,10 @@
     }
 
     function openPage(page){
+      if (!isAuthenticated) {
+        forceRelogin("Sessão expirada. Faça login novamente.");
+        return;
+      }
       if (isVendedorRole() && page !== "reservas") {
         page = "reservas";
       }
@@ -427,7 +477,7 @@
         link.classList.toggle("active", link.getAttribute("data-page-link") === page);
       }
       if (page === "reservas") {
-        openReserveSection(isVendedorRole() ? "minhas" : (currentReserveSection || "solicitacoes"));
+        openReserveSection(isVendedorRole() ? "home" : (currentReserveSection || "solicitacoes"));
       }
       if (page === "dashboard" && !dashboardLoaded) {
         loadDashboard();
@@ -713,6 +763,100 @@
       if (!fromEl.value) fromEl.value = toLocalDateInputValue(monthStart);
       if (!toEl.value) toEl.value = toLocalDateInputValue(now);
     }
+    function setSellerHomeDefaultDates(){
+      const fromEl = document.getElementById("home_from");
+      const toEl = document.getElementById("home_to");
+      if (!fromEl || !toEl) return;
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      if (!fromEl.value) fromEl.value = toLocalDateInputValue(monthStart);
+      if (!toEl.value) toEl.value = toLocalDateInputValue(now);
+    }
+
+    function sellerHomeGreeting(){
+      const h = new Date().getHours();
+      if (h < 12) return "Bom dia";
+      if (h < 18) return "Boa tarde";
+      return "Boa noite";
+    }
+    function applySellerHomeLinkRules(){
+      const sugestao = document.getElementById("seller_link_sugestao");
+      const propostas = document.getElementById("seller_link_propostas");
+      if (!sugestao || !propostas) return;
+      const blocked = isVendedorRole() && String(currentUserFilial || "").trim().toUpperCase() !== "TER";
+      for (const el of [sugestao, propostas]) {
+        el.classList.toggle("disabled", blocked);
+        if (blocked) {
+          el.setAttribute("aria-disabled", "true");
+          el.setAttribute("title", "Disponível apenas para vendedor da filial TER");
+        } else {
+          el.removeAttribute("aria-disabled");
+          el.removeAttribute("title");
+        }
+      }
+    }
+    function applySellerHomeAdminFilters(){
+      const wrap = document.getElementById("home_vendor_field");
+      const input = document.getElementById("home_vendor");
+      const allow = isAdminRole();
+      if (wrap) wrap.classList.toggle("hidden", !allow);
+      if (input && !allow) input.value = "";
+    }
+
+    function parseSellerStatusNorm(raw){
+      const s = String(raw || "").trim().toLowerCase();
+      if (!s) return "";
+      if (s.includes("atend")) return "atendida";
+      if (s.includes("solicit")) return "solicitada";
+      if (s.includes("digit")) return "digitada";
+      if (s.includes("expir")) return "expirada";
+      return s;
+    }
+
+    async function loadSellerHome(){
+      setSellerHomeDefaultDates();
+      const from = (document.getElementById("home_from")?.value || "").trim();
+      const to = (document.getElementById("home_to")?.value || "").trim();
+      const sellerQ = isAdminRole() ? (document.getElementById("home_vendor")?.value || "").trim() : "";
+      const url = "/api/solicitacoes/minhas?status=all&q=" + encodeURIComponent(sellerQ) + "&from=" + encodeURIComponent(from) + "&to=" + encodeURIComponent(to);
+      const res = await fetch(url);
+      const data = await res.json();
+      if (!res.ok || data.ok === false) {
+        setStatus(data.message || "Erro ao carregar home do vendedor");
+        return;
+      }
+      const items = Array.isArray(data.items) ? data.items : [];
+      let atendidas = 0;
+      let slaSumMin = 0;
+      let slaCount = 0;
+      for (const it of items) {
+        const statusNorm = parseSellerStatusNorm(it.status);
+        const isAtendida = statusNorm === "atendida";
+        if (isAtendida) atendidas++;
+        const start = parseDateTimeFlexible(it.requested_at || "");
+        const end = parseDateTimeFlexible(it.served_at || "");
+        if (isAtendida && start && end) {
+          const diff = Math.floor((end.getTime() - start.getTime()) / 60000);
+          if (Number.isFinite(diff) && diff >= 0) {
+            slaSumMin += diff;
+            slaCount++;
+          }
+        }
+      }
+      const total = items.length;
+      const taxa = total > 0 ? (atendidas * 100) / total : 0;
+      const slaMedio = slaCount > 0 ? (slaSumMin / slaCount) : 0;
+      const set = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = value;
+      };
+      set("seller_home_total", formatStatusNumber(String(total)));
+      set("seller_home_atendidas", formatStatusNumber(String(atendidas)));
+      set("seller_home_taxa", (Number.isFinite(taxa) ? taxa : 0).toFixed(1).replace(".", ",") + "%");
+      set("seller_home_sla", (Number.isFinite(slaMedio) ? slaMedio : 0).toFixed(1).replace(".", ",") + " min");
+      sellerHomeLoaded = true;
+      setStatus("Home atualizada");
+    }
 
     function dashboardQueryString(){
       const params = new URLSearchParams();
@@ -777,6 +921,8 @@
     }
 
     function openReserveSection(section){
+      applyReserveTabOrder();
+      const home = document.getElementById("reserve-home");
       const solicitacoes = document.getElementById("reserve-solicitacoes");
       const minhas = document.getElementById("reserve-minhas");
       const reserved = document.getElementById("reserve-reserved");
@@ -786,10 +932,14 @@
       const logPanel = document.getElementById("reserve-log-panel");
       const page = document.getElementById("page-reservas");
 
-      if (isVendedorRole() && section !== "solicitar" && section !== "minhas") {
-        section = "minhas";
+      if (isVendedorRole() && section !== "solicitar" && section !== "minhas" && section !== "home") {
+        section = "home";
+      }
+      if (!canAccessReserveHome() && section === "home") {
+        section = "solicitacoes";
       }
 
+      if (home) home.classList.toggle("hidden", section !== "home");
       if (solicitacoes) solicitacoes.classList.toggle("hidden", section !== "solicitacoes");
       if (minhas) minhas.classList.toggle("hidden", section !== "minhas");
       if (reserved) reserved.classList.toggle("hidden", section !== "reserved");
@@ -802,14 +952,29 @@
       const tabs = document.querySelectorAll("[data-reserve-tab]");
       for (const tab of tabs) {
         const tabName = tab.getAttribute("data-reserve-tab");
-        if (isVendedorRole() && tabName !== "solicitar" && tabName !== "minhas") {
+        if (isVendedorRole() && tabName !== "solicitar" && tabName !== "minhas" && tabName !== "home") {
           tab.style.display = "none";
         } else {
           tab.style.display = "";
         }
         tab.classList.toggle("active", tabName === section);
       }
-      if (!isVendedorRole()) {
+      if (canAccessReserveHome()) {
+        const homeTab = document.querySelector("[data-reserve-tab='home']");
+        const minhasTab = document.querySelector("[data-reserve-tab='minhas']");
+        const solicitarTab = document.querySelector("[data-reserve-tab='solicitar']");
+        if (homeTab && minhasTab && homeTab.parentNode === minhasTab.parentNode) {
+          homeTab.classList.remove("hidden");
+          homeTab.parentNode.insertBefore(homeTab, minhasTab);
+        }
+        if (minhasTab && solicitarTab && minhasTab.parentNode === solicitarTab.parentNode) {
+          minhasTab.parentNode.insertBefore(minhasTab, solicitarTab);
+        }
+        applySellerHomeAdminFilters();
+      }
+      if (!canAccessReserveHome()) {
+        const homeTab = document.querySelector("[data-reserve-tab='home']");
+        if (homeTab) homeTab.classList.add("hidden");
         const minhasTab = document.querySelector("[data-reserve-tab='minhas']");
         const solicitarTab = document.querySelector("[data-reserve-tab='solicitar']");
         if (minhasTab && solicitarTab && minhasTab.parentNode === solicitarTab.parentNode) {
@@ -819,6 +984,11 @@
 
       currentReserveSection = section;
 
+      if (section === "home") {
+        setSellerHomeDefaultDates();
+        applySellerHomeLinkRules();
+        loadSellerHome();
+      }
       if (section === "solicitacoes" && solicitacaoRows.length === 0) {
         searchSolicitacoes();
       }
@@ -1169,6 +1339,7 @@
       if (!data || data.ok === false) {
         isAuthenticated = false;
         currentUserRole = "";
+        sellerHomeLoaded = false;
         window.currentUserRole = "";
         window.userPermissions = [];
         return false;
@@ -1180,6 +1351,7 @@
       currentUserName = String(data.full_name || data.username || "");
       currentUserCPF = String(data.cpf || "");
       currentUserFilial = String(data.branch || data.filial || "");
+      sellerHomeLoaded = false;
       const hello = document.querySelector(".user-chip span:last-child");
       if (hello) hello.textContent = "OlÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡, " + String(data.full_name || data.username || "UsuÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡rio");
       applyRolePermissions();
@@ -1236,6 +1408,7 @@
       currentUserName = String(data.full_name || data.username || "");
       currentUserCPF = String(data.cpf || "");
       currentUserFilial = String(data.branch || data.filial || "");
+      sellerHomeLoaded = false;
       const hello = document.querySelector(".user-chip span:last-child");
       if (hello) hello.textContent = "OlÃ¡, " + String(data.full_name || data.username || "UsuÃ¡rio");
       applyRolePermissions();
@@ -1392,6 +1565,7 @@
       } catch(err) {}
       isAuthenticated = false;
       currentUserRole = "";
+      sellerHomeLoaded = false;
       mfaTempToken = ""; 
       window.currentUserRole = "";
       window.userPermissions = [];

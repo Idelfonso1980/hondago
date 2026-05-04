@@ -449,27 +449,33 @@
       border-radius: var(--radius);
       box-shadow: var(--shadow);
       min-width: 0;
+      overflow: hidden;
     }
 
     .panel-head {
       padding: 16px 16px 12px;
-      border-bottom: 1px solid var(--line);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.22);
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 10px;
+      background: #c62127;
+      color: #ffffff;
+      border-top-left-radius: var(--radius);
+      border-top-right-radius: var(--radius);
     }
 
     .panel-head h2 {
       margin: 0;
       font-size: 18px;
       letter-spacing: 0.15px;
+      color: #ffffff;
     }
 
     .panel-head p {
       margin: 4px 0 0;
       font-size: 12px;
-      color: var(--muted);
+      color: rgba(255, 255, 255, 0.9);
     }
 
     .panel-body { padding: 14px 16px 16px; }
@@ -618,6 +624,86 @@
 
     .reserve-section.hidden {
       display: none;
+    }
+    .home-search-row {
+      grid-template-columns: minmax(170px, 210px) minmax(170px, 210px) minmax(220px, 320px) auto;
+      align-items: end;
+      margin-bottom: 12px;
+    }
+    .seller-home-metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(150px, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .seller-metric-card {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fff;
+      padding: 12px;
+    }
+    .seller-home-metrics .seller-metric-card:nth-child(1) { background: #eef2ff; border-color: #c7d2fe; }
+    .seller-home-metrics .seller-metric-card:nth-child(2) { background: #ecfdf5; border-color: #a7f3d0; }
+    .seller-home-metrics .seller-metric-card:nth-child(3) { background: #eff6ff; border-color: #bfdbfe; }
+    .seller-home-metrics .seller-metric-card:nth-child(4) { background: #fef9c3; border-color: #fde68a; }
+    .seller-metric-card .k {
+      font-size: 11px;
+      color: #64748b;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .2px;
+    }
+    .seller-metric-card .v {
+      margin-top: 8px;
+      font-size: 30px;
+      font-weight: 800;
+      color: #0f172a;
+      line-height: 1;
+    }
+    .seller-home-title {
+      margin: 4px 0 10px;
+      font-size: 20px;
+      color: #0f172a;
+    }
+    .seller-home-links {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(200px, 1fr));
+      gap: 10px;
+    }
+    .seller-link-card {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 6px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fff;
+      color: #0f172a;
+      padding: 14px;
+      text-align: left;
+      text-decoration: none;
+      cursor: pointer;
+      transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+    }
+    .seller-link-card:hover {
+      border-color: #94a3b8;
+      box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
+      transform: translateY(-1px);
+    }
+    .seller-link-card span {
+      font-size: 16px;
+      font-weight: 700;
+    }
+    .seller-link-card small {
+      font-size: 12px;
+      color: #64748b;
+    }
+    .seller-link-card.disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+      pointer-events: none;
+      box-shadow: none;
+      transform: none;
     }
 
     .auth-toolbar {
@@ -1189,22 +1275,24 @@
 
     .modal-head {
       padding: 14px 16px;
-      border-bottom: 1px solid var(--line);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.22);
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 10px;
-      background: #f8fafc;
+      background: #c62127;
+      color: #fff;
     }
 
     .modal-head h3 {
       margin: 0;
       font-size: 17px;
+      color: #fff;
     }
 
     .modal-sub {
       margin: 4px 0 0;
-      color: var(--muted);
+      color: rgba(255, 255, 255, 0.9);
       font-size: 12px;
     }
 
@@ -1457,6 +1545,13 @@
       .dash-grid-cards {
         grid-template-columns: repeat(2, minmax(140px, 1fr));
       }
+      .seller-home-metrics {
+        grid-template-columns: repeat(2, minmax(140px, 1fr));
+      }
+      .seller-home-links {
+        grid-template-columns: 1fr;
+      }
+      .home-search-row { grid-template-columns: 1fr; }
       .dash-filters {
         grid-template-columns: 1fr;
       }
