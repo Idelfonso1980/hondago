@@ -5020,7 +5020,7 @@ func (a *app) handleLogs(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) uiLogf(format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
-	line := fmt.Sprintf("%s %s\n", time.Now().Format("2006/01/02 15:04:05"), msg)
+	line := fmt.Sprintf("%s %s\n", time.Now().In(utcMinus3Loc).Format("2006/01/02 15:04:05"), msg)
 	_, _ = a.logBuffer.Write([]byte(line))
 	a.appendToUILogFile(line)
 	log.Print(msg)
@@ -5028,7 +5028,7 @@ func (a *app) uiLogf(format string, args ...any) {
 
 func (a *app) uiLogfTo(filePath, format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
-	line := fmt.Sprintf("%s %s\n", time.Now().Format("2006/01/02 15:04:05"), msg)
+	line := fmt.Sprintf("%s %s\n", time.Now().In(utcMinus3Loc).Format("2006/01/02 15:04:05"), msg)
 	_, _ = a.logBuffer.Write([]byte(line))
 	a.appendToLogFile(filePath, line)
 	log.Print(msg)
@@ -5041,7 +5041,7 @@ func (a *app) newUILogFilePath(tag string) string {
 		safeTag = "ui_actions"
 	}
 	safeTag = strings.ReplaceAll(safeTag, " ", "_")
-	fileName := fmt.Sprintf("honda_go_%s_%s.log", safeTag, time.Now().Format("20060102_150405_000"))
+	fileName := fmt.Sprintf("honda_go_%s_%s.log", safeTag, time.Now().In(utcMinus3Loc).Format("20060102_150405_000"))
 	return filepath.Join(logDir, fileName)
 }
 
@@ -5132,10 +5132,10 @@ func (a *app) handleDiagnosticLogFiles(w http.ResponseWriter, r *http.Request) {
 		tmp = append(tmp, sortable{
 			item: diagnosticLogFile{
 				Name:       name,
-				ModifiedAt: info.ModTime().Format("2006-01-02 15:04:05"),
+				ModifiedAt: info.ModTime().In(utcMinus3Loc).Format("2006-01-02 15:04:05"),
 				SizeBytes:  info.Size(),
 			},
-			t: info.ModTime(),
+			t: info.ModTime().In(utcMinus3Loc),
 		})
 	}
 

@@ -9,6 +9,14 @@ import (
 	"time"
 )
 
+func utcMinus3Location() *time.Location {
+	loc, err := time.LoadLocation("America/Fortaleza")
+	if err == nil {
+		return loc
+	}
+	return time.FixedZone("UTC-3", -3*60*60)
+}
+
 // ConfigureFileLogging creates a timestamped log file under <configDir>/log
 // and configures the default logger to write to both stdout and this file.
 func ConfigureFileLogging(configPath string) (*os.File, string, error) {
@@ -22,7 +30,7 @@ func ConfigureFileLogging(configPath string) (*os.File, string, error) {
 		return nil, "", fmt.Errorf("create log dir: %w", err)
 	}
 
-	timestamp := time.Now().Format("20060102_150405_-0700")
+	timestamp := time.Now().In(utcMinus3Location()).Format("20060102_150405_-0700")
 	logPath := filepath.Join(logDir, fmt.Sprintf("honda_go_%s.log", timestamp))
 	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
