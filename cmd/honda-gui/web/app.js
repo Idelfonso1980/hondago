@@ -320,6 +320,16 @@
       }
     }
 
+    function setStatusDetailsRaw(text){
+      const raw = String(text || "").trim();
+      if (!raw) return;
+      lastStatusFullText = raw;
+      const detail = document.getElementById("statusDetailsText");
+      if (detail && !document.getElementById("statusDetailsModal").classList.contains("hidden")) {
+        detail.value = raw;
+      }
+    }
+
     function openStatusDetailsModal(){
       const modal = document.getElementById("statusDetailsModal");
       const detail = document.getElementById("statusDetailsText");
@@ -1252,7 +1262,7 @@
           "<td>" + escapeHtml(u.phone || "") + "</td>" +
           "<td>" + escapeHtml(normalizeRoleValue(u.role || "")) + "</td>" +
           "<td>" + escapeHtml(active) + "</td>" +
-          "<td>" + escapeHtml(u.last_login_at || "") + "</td>" +
+          "<td>" + escapeHtml(formatDateTimeBRSeconds(u.last_login_at || "")) + "</td>" +
           "<td><div class=\"auth-actions\">" +
             "<button type=\"button\" class=\"auth-action-btn\" title=\"Editar\" aria-label=\"Editar\" onclick=\"openAppUserEditModal(" + String(id) + ")\">" + authActionIcon("edit") + "</button>" +
             "<button type=\"button\" class=\"auth-action-btn auth-action-danger\" title=\"Excluir\" aria-label=\"Excluir\" onclick=\"deleteAppUser(" + String(id) + ")\">" + authActionIcon("delete") + "</button>" +
@@ -3702,11 +3712,13 @@
       try {
         if (navigator.clipboard && navigator.clipboard.writeText) {
           await navigator.clipboard.writeText(msg);
-          setStatus("Lista de não autenticados copiada: " + String(missing.length) + " usuário(s) | " + msg);
+          setStatus("Lista de não autenticados copiada: " + String(missing.length) + " usuário(s)");
+          setStatusDetailsRaw(msg);
           return;
         }
       } catch (_) {}
-      setStatus("Lista de não autenticados: " + String(missing.length) + " usuário(s) | " + msg);
+      setStatus("Lista de não autenticados: " + String(missing.length) + " usuário(s)");
+      setStatusDetailsRaw(msg);
     }
 
     function renderReservedTable(items){
