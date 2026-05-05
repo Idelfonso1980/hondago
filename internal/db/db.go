@@ -1135,7 +1135,7 @@ func (s *Store) SearchReservedCotas(ctx context.Context, query, fromDate, toDate
 		if len(whereParts) > 0 {
 			querySQL += " WHERE " + strings.Join(whereParts, " AND ")
 		}
-		querySQL += " ORDER BY id DESC LIMIT ?"
+		querySQL += " ORDER BY id ASC LIMIT ?"
 		args = append(args, limit)
 		rows, err = s.DB.QueryContext(ctx, s.bind(querySQL), args...)
 	} else {
@@ -1156,7 +1156,7 @@ func (s *Store) SearchReservedCotas(ctx context.Context, query, fromDate, toDate
 		if len(whereParts) > 0 {
 			querySQL += " WHERE " + strings.Join(whereParts, " AND ")
 		}
-		querySQL += " ORDER BY id DESC LIMIT ?"
+		querySQL += " ORDER BY id ASC LIMIT ?"
 		args = append(args, limit)
 		rows, err = s.DB.QueryContext(ctx, s.bind(querySQL), args...)
 	}
@@ -1358,7 +1358,7 @@ CAST(COALESCE(contemplation_bid, '') AS TEXT) AS contemplation_bid`
 	if len(whereParts) > 0 {
 		querySQL += " WHERE " + strings.Join(whereParts, " AND ")
 	}
-	querySQL += " ORDER BY id DESC LIMIT ?"
+	querySQL += " ORDER BY id ASC LIMIT ?"
 	args = append(args, limit)
 
 	rows, err := s.DB.QueryContext(ctx, s.bind(querySQL), args...)
@@ -2325,7 +2325,7 @@ func (s *Store) SearchManualNotifications(ctx context.Context, query, status, fr
 	if len(whereParts) > 0 {
 		querySQL += " WHERE " + strings.Join(whereParts, " AND ")
 	}
-	querySQL += " ORDER BY id DESC LIMIT ?"
+	querySQL += " ORDER BY id ASC LIMIT ?"
 	args = append(args, limit)
 
 	rows, err := s.DB.QueryContext(ctx, s.bind(querySQL), args...)
