@@ -1328,7 +1328,14 @@
 
     .dash-details-table {
       width: 100%;
-      min-width: 900px;
+      min-width: 0;
+      table-layout: auto;
+    }
+
+    .dash-details-table th,
+    .dash-details-table td {
+      white-space: normal;
+      overflow-wrap: anywhere;
     }
 
     .diag-list {
