@@ -705,6 +705,22 @@
       box-shadow: none;
       transform: none;
     }
+    .seller-home-footer {
+      margin-top: 14px;
+      padding: 12px 14px;
+      border: 1px solid #fecaca;
+      border-radius: 10px;
+      background: #fff5f5;
+      color: #7f1d1d;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .seller-home-footer p {
+      margin: 0 0 6px;
+    }
+    .seller-home-footer p:last-child {
+      margin-bottom: 0;
+    }
 
     .auth-toolbar {
       display: flex;

@@ -89,7 +89,7 @@
             url.indexOf("/api/app/login") >= 0 ||
             url.indexOf("/api/app/mfa-login") >= 0 ||
             url.indexOf("/api/app/session") >= 0;
-          if (isApi && !isAuthEndpoint && (res.status === 401 || res.status === 403) && isAuthenticated) {
+          if (isApi && !isAuthEndpoint && res.status === 401 && isAuthenticated) {
             forceRelogin("Sessão expirada. Faça login novamente.");
           }
         } catch (_) {}
@@ -455,7 +455,7 @@
     }
 
     function openPage(page){
-      if (!isAuthenticated) {
+      if (!isAuthenticated && appBootstrapped) {
         forceRelogin("Sessão expirada. Faça login novamente.");
         return;
       }
@@ -798,9 +798,11 @@
     function applySellerHomeAdminFilters(){
       const wrap = document.getElementById("home_vendor_field");
       const input = document.getElementById("home_vendor");
+      const footer = document.getElementById("seller_home_footer");
       const allow = isAdminRole();
       if (wrap) wrap.classList.toggle("hidden", !allow);
       if (input && !allow) input.value = "";
+      if (footer) footer.classList.toggle("hidden", !isVendedorRole());
     }
 
     function parseSellerStatusNorm(raw){
