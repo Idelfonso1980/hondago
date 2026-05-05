@@ -1562,22 +1562,27 @@
 
 
     async function logoutAppUser(){
-      try {
-        await fetch("/api/app/logout?_cb=" + Date.now(), {method: "POST"});
-      } catch(err) {}
       isAuthenticated = false;
       currentUserRole = "";
       sellerHomeLoaded = false;
-      mfaTempToken = ""; 
+      mfaTempToken = "";
+      appBootstrapped = false;
       window.currentUserRole = "";
       window.userPermissions = [];
-      window.location.href = "/"; // Redireciona para a raiz garantindo limpeza de estado
+      applyRolePermissions();
+      closeUserMenu();
+      showLoginOverlay(true);
       setStatus("SessÃ£o encerrada");
       const loginErr = document.getElementById("login_error");
       if (loginErr) loginErr.textContent = "";
-      document.getElementById("login_username").value = "";
-      document.getElementById("login_password").value = "";
-      document.getElementById("login_username").focus();
+      const loginUser = document.getElementById("login_username");
+      const loginPass = document.getElementById("login_password");
+      if (loginUser) loginUser.value = "";
+      if (loginPass) loginPass.value = "";
+      if (loginUser) loginUser.focus();
+      try {
+        await fetch("/api/app/logout?_cb=" + Date.now(), {method: "POST"});
+      } catch(err) {}
     }
 
     function maskToken(token){
