@@ -443,6 +443,7 @@ type solicitacaoSuccessItemPayload struct {
 	CPF           string `json:"cpf,omitempty"`
 	GrupoAtendido string `json:"served_group"`
 	CotaRD        string `json:"cota_rd"`
+	QtdeParcelas  string `json:"installments,omitempty"`
 	Modelo        string `json:"model_name"`
 	SolicitadaEm  string `json:"requested_at,omitempty"`
 	AtendidaEm    string `json:"served_at,omitempty"`
@@ -2470,6 +2471,12 @@ func (a *app) reserveSolicitacaoByID(ctx context.Context, cfg *config.Config, st
 		CPF:           strings.TrimSpace(rec.CPF),
 		GrupoAtendido: strings.TrimSpace(grupoAtendido),
 		CotaRD:        strings.TrimSpace(rec.CotaRD),
+		QtdeParcelas: func() string {
+			if rec.QtdeParcelas.Valid {
+				return strconv.FormatInt(rec.QtdeParcelas.Int64, 10)
+			}
+			return ""
+		}(),
 		Modelo:        strings.TrimSpace(modeloNome),
 		SolicitadaEm:  formatDateTimeBRNoSeconds(strings.TrimSpace(rec.DataHoraSolicitacao.String)),
 		AtendidaEm:    formatDateTimeBRNoSeconds(strings.TrimSpace(now)),
@@ -3452,6 +3459,10 @@ func buildManualNotificationMessage(item solicitacaoSuccessItemPayload) string {
 	if quota_rd == "" {
 		quota_rd = "-"
 	}
+	installments := strings.TrimSpace(item.QtdeParcelas)
+	if installments == "" {
+		installments = "-"
+	}
 	model_name := strings.TrimSpace(item.Modelo)
 	if model_name == "" {
 		model_name = "-"
@@ -3472,6 +3483,7 @@ func buildManualNotificationMessage(item solicitacaoSuccessItemPayload) string {
 		lines = append(lines, "Grupo: "+group_code)
 	}
 	lines = append(lines, "Cota-R-D: "+quota_rd)
+	lines = append(lines, "Parcelas: "+installments)
 	lines = append(lines, "Modelo: "+model_name)
 	if solicitada != "" {
 		lines = append(lines, "Solicitada: "+solicitada)

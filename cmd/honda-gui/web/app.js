@@ -2230,6 +2230,7 @@
       const branch = String(item.branch || "").trim().toUpperCase();
       const group_code = String(item.served_group || "").trim() || "-";
       const quota_rd = String(item.cota_rd || "").trim() || "-";
+      const installments = String(item.installments || "").trim() || "-";
       const model_name = String(item.model_name || "").trim() || "-";
       const solicitada = String(item.requested_at || "").trim();
       const atendida = String(item.served_at || "").trim();
@@ -2242,6 +2243,7 @@
         lines.push("Grupo: " + group_code);
       }
       lines.push("Cota-R-D: " + quota_rd);
+      lines.push("Parcelas: " + installments);
       lines.push("Modelo: " + model_name);
       if (solicitada) lines.push("Solicitada: " + solicitada);
       if (atendida) lines.push("Atendida: " + atendida);
