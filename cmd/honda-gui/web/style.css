@@ -555,6 +555,10 @@
       grid-template-columns: minmax(220px, 320px) minmax(320px, 1fr) auto;
       align-items: end;
     }
+    .ga-search-row {
+      grid-template-columns: minmax(260px, 1fr) minmax(180px, 230px) minmax(220px, 1fr) auto auto;
+      align-items: end;
+    }
 
     .sol-search-row {
       grid-template-columns: minmax(170px, 220px) minmax(170px, 220px) minmax(200px, 280px) minmax(180px, 240px) minmax(300px, 1fr) auto;
@@ -592,6 +596,41 @@
 
     .search-icon-btn .btn-label {
       display: none;
+    }
+    .ga-add-filter-btn {
+      min-height: 42px;
+      height: 42px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .active-filter-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: -2px 0 12px;
+    }
+    .active-filter-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      border: 1px solid #d8dee9;
+      border-radius: 999px;
+      background: #f8fafc;
+      color: #334155;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .chip-remove {
+      border: 0;
+      background: transparent;
+      color: #64748b;
+      font-size: 16px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 0;
     }
 
     .config-sections {

@@ -32,6 +32,7 @@
     let produtoLastSearch = "";
     let assembleiaLastSearch = "";
     let gruposAtivosLastSearch = "";
+    let gruposAtivosFilters = [];
     let idsgOffset = 0;
     let idsgLimit = 200;
     let idsgTotal = 0;
@@ -3435,7 +3436,7 @@
       const selectAll = document.getElementById("ga_select_all");
       if (selectAll) selectAll.checked = false;
       if (!gruposAtivosRows.length) {
-        body.innerHTML = "<tr><td colspan=\"13\">Nenhum registro encontrado.</td></tr>";
+        body.innerHTML = "<tr><td colspan=\"14\">Nenhum registro encontrado.</td></tr>";
         return;
       }
       body.innerHTML = gruposAtivosRows.map((g) => {
@@ -3444,9 +3445,10 @@
           "<td><input type=\"checkbox\" class=\"ga-row-check\" value=\"" + String(id) + "\" /></td>" +
           "<td>" + escapeHtml(String(id)) + "</td>" +
           "<td>" + escapeHtml(String(g.group_code || "")) + "</td>" +
+          "<td>" + escapeHtml(formatPercent(g.bid_percent || "")) + "</td>" +
           "<td>" + escapeHtml(String(g.due_day || "")) + "</td>" +
           "<td>" + escapeHtml(String(g.participants_count || "")) + "</td>" +
-          "<td>" + escapeHtml(String(g.first_assembly_date || "")) + "</td>" +
+          "<td>" + escapeHtml(formatDateBR(g.first_assembly_date || "")) + "</td>" +
           "<td>" + escapeHtml(String(g.plan || "")) + "</td>" +
           "<td>" + escapeHtml(String(g.term_months || "")) + "</td>" +
           "<td>" + escapeHtml(String(g.parcelas_calculadas || "")) + "</td>" +
@@ -3461,12 +3463,72 @@
       }).join("");
     }
 
+    function gaFilterLabel(field){
+      const map = {
+        id: "ID",
+        grupo: "Grupo",
+        venc: "Vencimento",
+        partic: "Participantes",
+        data: "Data Assembleia",
+        plano: "Plano",
+        prazo: "Prazo",
+        parc: "Parc.",
+        tipo: "Tipo Grupo",
+        modelos: "Modelos",
+        status: "Status",
+        lance: "Perc. Lance"
+      };
+      return map[String(field || "").toLowerCase()] || String(field || "");
+    }
+
+    function renderGaFilterChips(){
+      const host = document.getElementById("ga_filter_chips");
+      if (!host) return;
+      if (!gruposAtivosFilters.length) {
+        host.innerHTML = "";
+        return;
+      }
+      host.innerHTML = gruposAtivosFilters.map((f, idx) => {
+        const label = gaFilterLabel(f.field) + ": " + String(f.value || "");
+        return (
+          "<span class=\"active-filter-chip\">" +
+            "<span class=\"chip-text\">" + escapeHtml(label) + "</span>" +
+            "<button type=\"button\" class=\"chip-remove\" aria-label=\"Remover filtro\" onclick=\"removeGaFilterChip(" + String(idx) + ")\">×</button>" +
+          "</span>"
+        );
+      }).join("");
+    }
+
+    function addGaFilterChip(){
+      const fieldEl = document.getElementById("ga_filter_field");
+      const valueEl = document.getElementById("ga_filter_value");
+      if (!fieldEl || !valueEl) return;
+      const field = String(fieldEl.value || "").trim().toLowerCase();
+      const value = String(valueEl.value || "").trim();
+      if (!field || !value) {
+        setStatus("Preencha campo e valor do filtro");
+        return;
+      }
+      gruposAtivosFilters.push({field, value});
+      valueEl.value = "";
+      renderGaFilterChips();
+      setStatus("Filtro adicionado");
+    }
+
+    function removeGaFilterChip(idx){
+      const n = Number(idx);
+      if (!Number.isFinite(n) || n < 0 || n >= gruposAtivosFilters.length) return;
+      gruposAtivosFilters.splice(n, 1);
+      renderGaFilterChips();
+      setStatus("Filtro removido");
+    }
+
     async function searchGruposAtivos(){
       const q = (document.getElementById("ga_search").value || "").trim();
-      const column = (document.getElementById("ga_search_column").value || "").trim();
+      const filters = gruposAtivosFilters.map((f) => String(f.field || "").trim() + ":" + String(f.value || "").trim()).filter(Boolean).join(";");
       gruposAtivosLastSearch = q;
       setStatus("Buscando grupos ativos");
-      const res = await fetch("/api/active_groups?q=" + encodeURIComponent(q) + "&column=" + encodeURIComponent(column));
+      const res = await fetch("/api/active_groups?q=" + encodeURIComponent(q) + "&filters=" + encodeURIComponent(filters));
       const data = await res.json();
       if (!res.ok || data.ok === false) {
         renderGruposAtivosTable([]);
@@ -4253,6 +4315,21 @@
       return n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + "%";
     }
 
+    function formatDateBR(value){
+      const s = String(value || "").trim();
+      if (!s) return "";
+      const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (m) return m[3] + "/" + m[2] + "/" + m[1];
+      const d = new Date(s);
+      if (!Number.isNaN(d.getTime())) {
+        const dd = String(d.getDate()).padStart(2, "0");
+        const mm = String(d.getMonth() + 1).padStart(2, "0");
+        const yy = d.getFullYear();
+        return dd + "/" + mm + "/" + yy;
+      }
+      return s;
+    }
+
     function statusCodeFromLine(line){
       let match = line.match(/\bstatus=(\d{3})\b/i);
       if (!match) match = line.match(/\bResponse\s+(\d{3})\b/i);
@@ -4580,8 +4657,11 @@
         searchGruposAtivos();
       }
     });
-    document.getElementById("ga_search_column").addEventListener("change", () => {
-      searchGruposAtivos();
+    document.getElementById("ga_filter_value").addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        addGaFilterChip();
+      }
     });
     document.getElementById("assembleia_search").addEventListener("keydown", (ev) => {
       if (ev.key === "Enter") {

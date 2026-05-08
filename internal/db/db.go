@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -203,6 +204,7 @@ type GrupoAtivoRecord struct {
 	Grupo                   int64
 	Vencimento              int64
 	QtdParticipantes        int64
+	PercLance               sql.NullFloat64
 	DataAssembleiaInaugural sql.NullString
 	Plano                   string
 	Prazo                   int64
@@ -3189,17 +3191,25 @@ func (s *Store) DeleteAssembleia(ctx context.Context, id int64) error {
 	return err
 }
 
-func (s *Store) SearchGruposAtivos(ctx context.Context, query, column string, limit int) ([]GrupoAtivoRecord, error) {
+func (s *Store) SearchGruposAtivos(ctx context.Context, query, column, filters string, limit int) ([]GrupoAtivoRecord, error) {
 	if limit <= 0 {
 		limit = 1000
 	}
 	q := strings.TrimSpace(query)
 	col := strings.ToLower(strings.TrimSpace(column))
+	filtersRaw := strings.TrimSpace(filters)
 
-	const cols = `CAST(COALESCE(NULLIF(CAST(id AS TEXT), ''), '0') AS INTEGER) AS id,
+const cols = `CAST(COALESCE(NULLIF(CAST(id AS TEXT), ''), '0') AS INTEGER) AS id,
 CAST(COALESCE(NULLIF(CAST(group_code AS TEXT), ''), '0') AS INTEGER) AS group_code,
 CAST(COALESCE(NULLIF(CAST(due_day AS TEXT), ''), '0') AS INTEGER) AS due_day,
 CAST(COALESCE(NULLIF(CAST(participants_count AS TEXT), ''), '0') AS INTEGER) AS participants_count,
+CAST(COALESCE((
+	SELECT CAST(REPLACE(COALESCE(NULLIF(TRIM(CAST(a.bid_percent AS TEXT)), ''), '0'), ',', '.') AS REAL)
+	FROM assemblies a
+	WHERE CAST(COALESCE(NULLIF(CAST(a.group_code AS TEXT), ''), '0') AS INTEGER) = CAST(COALESCE(NULLIF(CAST(active_groups.group_code AS TEXT), ''), '0') AS INTEGER)
+	ORDER BY CAST(COALESCE(NULLIF(CAST(a.id AS TEXT), ''), '0') AS INTEGER) DESC
+	LIMIT 1
+), 0) AS REAL) AS bid_percent,
 CAST(COALESCE(CAST(first_assembly_date AS TEXT), '') AS TEXT) AS first_assembly_date,
 CAST(COALESCE(plan, '') AS TEXT) AS plan,
 CAST(COALESCE(NULLIF(CAST(term_months AS TEXT), ''), '0') AS INTEGER) AS term_months,
@@ -3209,8 +3219,15 @@ CAST(COALESCE(status, '') AS TEXT) AS status,
 CAST(COALESCE(CAST(created_at AS TEXT), '') AS TEXT) AS created_at,
 CAST(COALESCE(CAST(updated_at AS TEXT), '') AS TEXT) AS updated_at`
 
-	whereSQL := ""
-	whereArgs := make([]any, 0, 12)
+	whereParts := make([]string, 0, 16)
+	whereArgs := make([]any, 0, 24)
+	appendCondition := func(sqlPart string, args ...any) {
+		if strings.TrimSpace(sqlPart) == "" {
+			return
+		}
+		whereParts = append(whereParts, sqlPart)
+		whereArgs = append(whereArgs, args...)
+	}
 	if q != "" {
 		textLike := "LIKE"
 		if s.driver == "pgx" {
@@ -3218,20 +3235,20 @@ CAST(COALESCE(CAST(updated_at AS TEXT), '') AS TEXT) AS updated_at`
 		}
 		like := "%" + q + "%"
 		if col == "" {
-			whereSQL = `
-WHERE CAST(id AS TEXT)=?
-   OR CAST(group_code AS TEXT) LIKE ?
-   OR CAST(due_day AS TEXT) LIKE ?
-   OR CAST(participants_count AS TEXT) LIKE ?
-   OR CAST(first_assembly_date AS TEXT) ` + textLike + ` ?
-   OR CAST(plan AS TEXT) ` + textLike + ` ?
-   OR CAST(term_months AS TEXT) LIKE ?
-   OR CAST(group_type AS TEXT) ` + textLike + ` ?
-   OR CAST(models AS TEXT) ` + textLike + ` ?
-   OR CAST(status AS TEXT) ` + textLike + ` ?
-   OR CAST(created_at AS TEXT) LIKE ?
-   OR CAST(updated_at AS TEXT) LIKE ?`
-			whereArgs = []any{q, like, like, like, like, like, like, like, like, like, like, like}
+			appendCondition(`(
+CAST(id AS TEXT)=?
+OR CAST(group_code AS TEXT) LIKE ?
+OR CAST(due_day AS TEXT) LIKE ?
+OR CAST(participants_count AS TEXT) LIKE ?
+OR CAST(first_assembly_date AS TEXT) `+textLike+` ?
+OR CAST(plan AS TEXT) `+textLike+` ?
+OR CAST(term_months AS TEXT) LIKE ?
+OR CAST(group_type AS TEXT) `+textLike+` ?
+OR CAST(models AS TEXT) `+textLike+` ?
+OR CAST(status AS TEXT) `+textLike+` ?
+OR CAST(created_at AS TEXT) LIKE ?
+OR CAST(updated_at AS TEXT) LIKE ?
+)`, q, like, like, like, like, like, like, like, like, like, like, like)
 		} else {
 			numericCols := map[string]string{
 				"id":                 "id",
@@ -3254,15 +3271,99 @@ WHERE CAST(id AS TEXT)=?
 				if convErr != nil {
 					return []GrupoAtivoRecord{}, nil
 				}
-				whereSQL = "WHERE CAST(COALESCE(NULLIF(CAST(" + rawCol + " AS TEXT), ''), '0') AS INTEGER)=?"
-				whereArgs = []any{n}
+				appendCondition("CAST(COALESCE(NULLIF(CAST("+rawCol+" AS TEXT), ''), '0') AS INTEGER)=?", n)
 			} else if rawCol, ok := textCols[col]; ok {
-				whereSQL = "WHERE CAST(COALESCE(" + rawCol + ", '') AS TEXT) " + textLike + " ?"
-				whereArgs = []any{"%" + q + "%"}
+				appendCondition("CAST(COALESCE("+rawCol+", '') AS TEXT) "+textLike+" ?", "%"+q+"%")
 			} else {
 				return nil, fmt.Errorf("coluna de busca invalida")
 			}
 		}
+	}
+
+	if filtersRaw != "" {
+		textLike := "LIKE"
+		if s.driver == "pgx" {
+			textLike = "ILIKE"
+		}
+		type filterField struct {
+			dbCol   string
+			numeric bool
+		}
+		fieldMap := map[string]filterField{
+			"id":      {dbCol: "id", numeric: true},
+			"grupo":   {dbCol: "group_code", numeric: true},
+			"venc":    {dbCol: "due_day", numeric: true},
+			"partic":  {dbCol: "participants_count", numeric: true},
+			"prazo":   {dbCol: "term_months", numeric: true},
+			"parc":    {dbCol: "term_months", numeric: true},
+			"lance":   {dbCol: "bid_percent", numeric: true},
+			"data":    {dbCol: "first_assembly_date", numeric: false},
+			"plano":   {dbCol: "plan", numeric: false},
+			"tipo":    {dbCol: "group_type", numeric: false},
+			"modelos": {dbCol: "models", numeric: false},
+			"status":  {dbCol: "status", numeric: false},
+		}
+
+		perField := make(map[string][]string)
+		parts := strings.FieldsFunc(filtersRaw, func(r rune) bool { return r == ';' || r == ',' })
+		for _, raw := range parts {
+			token := strings.TrimSpace(raw)
+			if token == "" {
+				continue
+			}
+			pair := strings.SplitN(token, ":", 2)
+			if len(pair) != 2 {
+				continue
+			}
+			key := strings.ToLower(strings.TrimSpace(pair[0]))
+			val := strings.TrimSpace(pair[1])
+			if key == "" || val == "" {
+				continue
+			}
+			if _, ok := fieldMap[key]; !ok {
+				continue
+			}
+			perField[key] = append(perField[key], val)
+		}
+
+		for key, values := range perField {
+			ff := fieldMap[key]
+			if len(values) == 0 {
+				continue
+			}
+			ors := make([]string, 0, len(values))
+			localArgs := make([]any, 0, len(values))
+			for _, v := range values {
+				if ff.numeric {
+					if ff.dbCol == "bid_percent" {
+						fv, convErr := strconv.ParseFloat(strings.ReplaceAll(v, ",", "."), 64)
+						if convErr != nil {
+							continue
+						}
+						ors = append(ors, "CAST(COALESCE((SELECT CAST(REPLACE(COALESCE(NULLIF(TRIM(CAST(a.bid_percent AS TEXT)), ''), '0'), ',', '.') AS REAL) FROM assemblies a WHERE CAST(COALESCE(NULLIF(CAST(a.group_code AS TEXT), ''), '0') AS INTEGER)=CAST(COALESCE(NULLIF(CAST(active_groups.group_code AS TEXT), ''), '0') AS INTEGER) ORDER BY CAST(COALESCE(NULLIF(CAST(a.id AS TEXT), ''), '0') AS INTEGER) DESC LIMIT 1), 0) AS REAL)=?")
+						localArgs = append(localArgs, fv)
+					} else {
+						n, convErr := parseInt64Safe(v)
+						if convErr != nil {
+							continue
+						}
+						ors = append(ors, "CAST(COALESCE(NULLIF(CAST("+ff.dbCol+" AS TEXT), ''), '0') AS INTEGER)=?")
+						localArgs = append(localArgs, n)
+					}
+				} else {
+					ors = append(ors, "CAST(COALESCE("+ff.dbCol+", '') AS TEXT) "+textLike+" ?")
+					localArgs = append(localArgs, "%"+v+"%")
+				}
+			}
+			if len(ors) > 0 {
+				appendCondition("("+strings.Join(ors, " OR ")+")", localArgs...)
+			}
+		}
+	}
+
+	whereSQL := ""
+	if len(whereParts) > 0 {
+		whereSQL = "WHERE " + strings.Join(whereParts, " AND ")
 	}
 
 	querySQL := "SELECT " + cols + " FROM active_groups " + whereSQL + " ORDER BY id DESC LIMIT ?"
@@ -3283,6 +3384,7 @@ WHERE CAST(id AS TEXT)=?
 			&r.Grupo,
 			&r.Vencimento,
 			&r.QtdParticipantes,
+			&r.PercLance,
 			&dataAssembleia,
 			&r.Plano,
 			&r.Prazo,
@@ -3311,6 +3413,13 @@ SELECT CAST(COALESCE(NULLIF(CAST(id AS TEXT), ''), '0') AS INTEGER),
        CAST(COALESCE(NULLIF(CAST(group_code AS TEXT), ''), '0') AS INTEGER),
        CAST(COALESCE(NULLIF(CAST(due_day AS TEXT), ''), '0') AS INTEGER),
        CAST(COALESCE(NULLIF(CAST(participants_count AS TEXT), ''), '0') AS INTEGER),
+       CAST(COALESCE((
+         SELECT CAST(REPLACE(COALESCE(NULLIF(TRIM(CAST(a.bid_percent AS TEXT)), ''), '0'), ',', '.') AS REAL)
+           FROM assemblies a
+          WHERE CAST(COALESCE(NULLIF(CAST(a.group_code AS TEXT), ''), '0') AS INTEGER) = CAST(COALESCE(NULLIF(CAST(active_groups.group_code AS TEXT), ''), '0') AS INTEGER)
+          ORDER BY CAST(COALESCE(NULLIF(CAST(a.id AS TEXT), ''), '0') AS INTEGER) DESC
+          LIMIT 1
+       ), 0) AS REAL),
        CAST(COALESCE(CAST(first_assembly_date AS TEXT), '') AS TEXT),
        CAST(COALESCE(plan, '') AS TEXT),
        CAST(COALESCE(NULLIF(CAST(term_months AS TEXT), ''), '0') AS INTEGER),
@@ -3328,6 +3437,7 @@ SELECT CAST(COALESCE(NULLIF(CAST(id AS TEXT), ''), '0') AS INTEGER),
 		&r.Grupo,
 		&r.Vencimento,
 		&r.QtdParticipantes,
+		&r.PercLance,
 		&dataAssembleia,
 		&r.Plano,
 		&r.Prazo,
@@ -3482,6 +3592,13 @@ SELECT CAST(COALESCE(NULLIF(CAST(id AS TEXT), ''), '0') AS INTEGER),
        CAST(COALESCE(NULLIF(CAST(group_code AS TEXT), ''), '0') AS INTEGER),
        CAST(COALESCE(NULLIF(CAST(due_day AS TEXT), ''), '0') AS INTEGER),
        CAST(COALESCE(NULLIF(CAST(participants_count AS TEXT), ''), '0') AS INTEGER),
+       CAST(COALESCE((
+         SELECT CAST(REPLACE(COALESCE(NULLIF(TRIM(CAST(a.bid_percent AS TEXT)), ''), '0'), ',', '.') AS REAL)
+           FROM assemblies a
+          WHERE CAST(COALESCE(NULLIF(CAST(a.group_code AS TEXT), ''), '0') AS INTEGER) = CAST(COALESCE(NULLIF(CAST(active_groups.group_code AS TEXT), ''), '0') AS INTEGER)
+          ORDER BY CAST(COALESCE(NULLIF(CAST(a.id AS TEXT), ''), '0') AS INTEGER) DESC
+          LIMIT 1
+       ), 0) AS REAL),
        CAST(COALESCE(CAST(first_assembly_date AS TEXT), '') AS TEXT),
        CAST(COALESCE(plan, '') AS TEXT),
        CAST(COALESCE(NULLIF(CAST(term_months AS TEXT), ''), '0') AS INTEGER),
@@ -3501,6 +3618,7 @@ SELECT CAST(COALESCE(NULLIF(CAST(id AS TEXT), ''), '0') AS INTEGER),
 		&r.Grupo,
 		&r.Vencimento,
 		&r.QtdParticipantes,
+		&r.PercLance,
 		&dataAssembleia,
 		&r.Plano,
 		&r.Prazo,
@@ -3543,6 +3661,13 @@ SELECT CAST(COALESCE(NULLIF(CAST(id AS TEXT), ''), '0') AS INTEGER),
        CAST(COALESCE(NULLIF(CAST(group_code AS TEXT), ''), '0') AS INTEGER),
        CAST(COALESCE(NULLIF(CAST(due_day AS TEXT), ''), '0') AS INTEGER),
        CAST(COALESCE(NULLIF(CAST(participants_count AS TEXT), ''), '0') AS INTEGER),
+       CAST(COALESCE((
+         SELECT CAST(REPLACE(COALESCE(NULLIF(TRIM(CAST(a.bid_percent AS TEXT)), ''), '0'), ',', '.') AS REAL)
+           FROM assemblies a
+          WHERE CAST(COALESCE(NULLIF(CAST(a.group_code AS TEXT), ''), '0') AS INTEGER) = CAST(COALESCE(NULLIF(CAST(active_groups.group_code AS TEXT), ''), '0') AS INTEGER)
+          ORDER BY CAST(COALESCE(NULLIF(CAST(a.id AS TEXT), ''), '0') AS INTEGER) DESC
+          LIMIT 1
+       ), 0) AS REAL),
        CAST(COALESCE(CAST(first_assembly_date AS TEXT), '') AS TEXT),
        CAST(COALESCE(plan, '') AS TEXT),
        CAST(COALESCE(NULLIF(CAST(term_months AS TEXT), ''), '0') AS INTEGER),
@@ -3567,6 +3692,7 @@ SELECT CAST(COALESCE(NULLIF(CAST(id AS TEXT), ''), '0') AS INTEGER),
 			&r.Grupo,
 			&r.Vencimento,
 			&r.QtdParticipantes,
+			&r.PercLance,
 			&dataAssembleia,
 			&r.Plano,
 			&r.Prazo,

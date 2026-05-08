@@ -550,6 +550,7 @@ type grupoAtivoPayload struct {
 	Grupo                   int64  `json:"group_code"`
 	Vencimento              int64  `json:"due_day"`
 	QtdParticipantes        int64  `json:"participants_count"`
+	PercLance               string `json:"bid_percent"`
 	DataAssembleiaInaugural string `json:"first_assembly_date"`
 	Plano                   string `json:"plan"`
 	Prazo                   int64  `json:"term_months"`
@@ -3893,6 +3894,9 @@ func grupoAtivoToPayload(r *db.GrupoAtivoRecord) grupoAtivoPayload {
 	if r.DataAssembleiaInaugural.Valid {
 		out.DataAssembleiaInaugural = strings.TrimSpace(r.DataAssembleiaInaugural.String)
 	}
+	if r.PercLance.Valid {
+		out.PercLance = strconv.FormatFloat(r.PercLance.Float64, 'f', -1, 64)
+	}
 	if r.CreatedAt.Valid {
 		out.CreatedAt = strings.TrimSpace(r.CreatedAt.String)
 	}
@@ -4275,13 +4279,18 @@ func (a *app) handleAssembleiaDelete(w http.ResponseWriter, r *http.Request) {
 func (a *app) handleGruposAtivosSearch(w http.ResponseWriter, r *http.Request) {
 	search := strings.TrimSpace(r.URL.Query().Get("q"))
 	column := strings.TrimSpace(r.URL.Query().Get("column"))
+	filters := strings.TrimSpace(r.URL.Query().Get("filters"))
+
+	// Filtro híbrido: "parc" é calculado dinamicamente em memória.
+	// Removemos "parc" da query SQL e aplicamos após calcular ParcelasCalculadas.
+	sqlFilters, parcFilters := splitGAFiltersForSQL(filters)
 	_, store, err := a.openStoreFromCurrentConfig()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
 
-	records, err := store.SearchGruposAtivos(r.Context(), search, column, 2000)
+	records, err := store.SearchGruposAtivos(r.Context(), search, column, sqlFilters, 2000)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -4293,9 +4302,56 @@ func (a *app) handleGruposAtivosSearch(w http.ResponseWriter, r *http.Request) {
 		item := grupoAtivoToPayload(&records[i])
 		rec := records[i]
 		item.ParcelasCalculadas = calculateParcelasFromGrupoAtivo(&rec, holidays, now)
+		if len(parcFilters) > 0 && !matchesParcFilter(item.ParcelasCalculadas, parcFilters) {
+			continue
+		}
 		out = append(out, item)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "items": out, "count": len(out)})
+}
+
+func splitGAFiltersForSQL(filters string) (string, []int64) {
+	raw := strings.TrimSpace(filters)
+	if raw == "" {
+		return "", nil
+	}
+	parts := strings.FieldsFunc(raw, func(r rune) bool { return r == ';' || r == ',' })
+	keep := make([]string, 0, len(parts))
+	parc := make([]int64, 0, 4)
+	for _, p := range parts {
+		token := strings.TrimSpace(p)
+		if token == "" {
+			continue
+		}
+		pair := strings.SplitN(token, ":", 2)
+		if len(pair) != 2 {
+			keep = append(keep, token)
+			continue
+		}
+		key := strings.ToLower(strings.TrimSpace(pair[0]))
+		val := strings.TrimSpace(pair[1])
+		if key == "parc" {
+			n, err := strconv.ParseInt(val, 10, 64)
+			if err == nil && n >= 0 {
+				parc = append(parc, n)
+			}
+			continue
+		}
+		keep = append(keep, token)
+	}
+	return strings.Join(keep, ";"), parc
+}
+
+func matchesParcFilter(parcelas int64, accepted []int64) bool {
+	if len(accepted) == 0 {
+		return true
+	}
+	for _, n := range accepted {
+		if parcelas == n {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *app) handleGrupoAtivoGet(w http.ResponseWriter, r *http.Request) {
