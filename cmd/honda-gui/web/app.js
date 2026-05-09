@@ -2235,6 +2235,7 @@
       const quota_rd = String(item.cota_rd || "").trim() || "-";
       const installments = String(item.installments || "").trim() || "-";
       const model_name = String(item.model_name || "").trim() || "-";
+      const licensed = String(item.licensed || "").trim() || "-";
       const with_restriction = String(item.with_restriction || "").trim() || "-";
       const solicitada = String(item.requested_at || "").trim();
       const atendida = String(item.served_at || "").trim();
@@ -2249,6 +2250,7 @@
       lines.push("Cota-R-D: " + quota_rd);
       lines.push("Parcelas: " + installments);
       lines.push("Modelo: " + model_name);
+      lines.push("Licenciada: " + licensed);
       lines.push("Restrição: " + with_restriction);
       if (solicitada) lines.push("Solicitada: " + solicitada);
       if (atendida) lines.push("Atendida: " + atendida);
@@ -2470,6 +2472,10 @@
         const isAttended = String(s.status || "").toLowerCase().includes("atendid") || (grAten !== "" && quota_rd !== "");
         const qtdNum = Number(String(s.qtd_solicitada || "").replace(",", "."));
         const qtdAlert = Number.isFinite(qtdNum) && qtdNum >= 10;
+        const placaVal = String(s.plan || "").trim().toLowerCase();
+        const restVal = String(s.with_restriction || "").trim().toLowerCase();
+        const placaAlert = placaVal === "sim";
+        const restAlert = restVal === "sim";
         const reserveBtnAttr = isAttended ? "disabled title=\"SolicitaÃ§Ã£o jÃ¡ atendida\"" : "title=\"Reservar\"";
         return "<tr>" +
           "<td><input type=\"checkbox\" class=\"sol-row-check\" value=\"" + String(id) + "\" " + (isAttended ? "disabled" : "") + " /></td>" +
@@ -2479,10 +2485,10 @@
           "<td>" + escapeHtml(s.cpf || "") + "</td>" +
           "<td>" + escapeHtml(s.model_name || "") + "</td>" +
           "<td>" + escapeHtml(formatDateTimeBR(s.requested_at || "")) + "</td>" +
-          "<td>" + escapeHtml(s.plan || "") + "</td>" +
+          "<td" + (placaAlert ? " style=\"color:#C62127;font-weight:700;\"" : "") + ">" + escapeHtml(s.plan || "") + "</td>" +
           "<td>" + escapeHtml(s.installments || "") + "</td>" +
           "<td>" + escapeHtml(formatPercent(s.bid_percent || "")) + "</td>" +
-          "<td>" + escapeHtml(s.with_restriction || "") + "</td>" +
+          "<td" + (restAlert ? " style=\"color:#C62127;font-weight:700;\"" : "") + ">" + escapeHtml(s.with_restriction || "") + "</td>" +
           "<td>" + escapeHtml(s.group_code || "") + "</td>" +
           "<td" + (qtdAlert ? " style=\"color:#C62127;font-weight:700;\"" : "") + ">" + escapeHtml(s.qtd_solicitada || "") + "</td>" +
           "<td title=\"" + escapeHtml(notes) + "\"><span class=\"sol-cell-ellipsis\">" + escapeHtml(notes) + "</span></td>" +

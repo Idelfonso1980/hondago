@@ -445,6 +445,7 @@ type solicitacaoSuccessItemPayload struct {
 	CotaRD        string `json:"cota_rd"`
 	QtdeParcelas  string `json:"installments,omitempty"`
 	Modelo        string `json:"model_name"`
+	Licenciada    string `json:"licensed,omitempty"`
 	ComRestricao  string `json:"with_restriction,omitempty"`
 	SolicitadaEm  string `json:"requested_at,omitempty"`
 	AtendidaEm    string `json:"served_at,omitempty"`
@@ -2553,6 +2554,7 @@ func (a *app) reserveSolicitacaoByID(ctx context.Context, cfg *config.Config, st
 			return ""
 		}(),
 		Modelo:       strings.TrimSpace(modeloNome),
+		Licenciada:   strings.TrimSpace(rec.Plano),
 		ComRestricao: strings.TrimSpace(rec.ComRestricao),
 		SolicitadaEm: formatDateTimeBRNoSeconds(strings.TrimSpace(rec.DataHoraSolicitacao.String)),
 		AtendidaEm:   formatDateTimeBRNoSeconds(strings.TrimSpace(now)),
@@ -3543,6 +3545,10 @@ func buildManualNotificationMessage(item solicitacaoSuccessItemPayload) string {
 	if model_name == "" {
 		model_name = "-"
 	}
+	licenciada := strings.TrimSpace(item.Licenciada)
+	if licenciada == "" {
+		licenciada = "-"
+	}
 	comRestricao := strings.TrimSpace(item.ComRestricao)
 	if comRestricao == "" {
 		comRestricao = "-"
@@ -3565,6 +3571,7 @@ func buildManualNotificationMessage(item solicitacaoSuccessItemPayload) string {
 	lines = append(lines, "Cota-R-D: "+quota_rd)
 	lines = append(lines, "Parcelas: "+installments)
 	lines = append(lines, "Modelo: "+model_name)
+	lines = append(lines, "Licenciada: "+licenciada)
 	lines = append(lines, "Restri\u00e7\u00e3o: "+comRestricao)
 	if solicitada != "" {
 		lines = append(lines, "Solicitada: "+solicitada)
