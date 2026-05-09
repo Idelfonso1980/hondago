@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8" />
@@ -23,12 +23,12 @@
     <div class="top-actions">
       <div id="status" title="Clique para ver detalhes completos">Status: Pronto</div>
       <div class="user-menu-wrap">
-        <button type="button" class="user-chip" onclick="toggleUserMenu()" aria-label="Menu do usuÃ¡rio">
+        <button type="button" class="user-chip" onclick="toggleUserMenu()" aria-label="Menu do usuário">
           <span class="user-avatar-ico">&#128100;</span>
-          <span>OlÃ¡, Idelfonso</span>
+          <span>Olá, Idelfonso</span>
         </button>
         <div id="userMenu" class="user-menu hidden">
-          <button type="button" class="user-menu-item" onclick="openPage('config'); closeUserMenu();">ConfiguraÃ§Ã£o</button>
+          <button type="button" class="user-menu-item" onclick="openPage('config'); closeUserMenu();">Configuração</button>
           <button type="button" class="user-menu-item" onclick="openMFASetupModal(); closeUserMenu();">Seguran&ccedil;a (MFA)</button>
           <button type="button" class="user-menu-item" onclick="logoutAppUser()">Sair</button>
         </div>
@@ -55,11 +55,11 @@
         </div>
         <div id="nav-logs" class="nav-item" onclick="openDiagnosticsModal(); closeSidebarMobile();">
           <span class="nav-ico">&#9776;</span>
-          <span class="nav-label">Logs e DiagnÃ³stico</span>
+          <span class="nav-label">Logs e Diagnóstico</span>
         </div>
         <div id="nav-config" class="nav-item" data-page-link="config" onclick="openPage('config'); closeSidebarMobile();">
           <span class="nav-ico">&#9881;</span>
-          <span class="nav-label">ConfiguraÃ§Ã£o</span>
+          <span class="nav-label">Configuração</span>
         </div>
       </nav>
 
@@ -72,7 +72,7 @@
           <div class="panel-head">
             <div>
               <h2>Dashboard</h2>
-              <p>VisÃ£o executiva das solicitaÃ§Ãµes e atendimentos.</p>
+              <p>Visão executiva das solicitações e atendimentos.</p>
             </div>
           </div>
           <div class="panel-body">
@@ -104,33 +104,33 @@
             </div>
 
             <div class="dash-grid-cards">
-              <div class="dash-card" onclick="openDashboardDetails('total')"><div class="k" title="Quantidade total de solicitaÃ§Ãµes no perÃ­odo e filtros selecionados.">SolicitaÃ§Ãµes</div><div class="v" id="dash_total">0</div><div class="d" id="dash_total_delta"></div></div>
-              <div class="dash-card" onclick="openDashboardDetails('atendidas')"><div class="k" title="SolicitaÃ§Ãµes marcadas como atendidas no perÃ­odo e filtros selecionados.">Atendidas</div><div class="v" id="dash_atendidas">0</div><div class="d" id="dash_atendidas_delta"></div></div>
-              <div class="dash-card" onclick="openDashboardDetails('nao_atendidas')"><div class="k" title="SolicitaÃ§Ãµes ainda nÃ£o atendidas no perÃ­odo e filtros selecionados.">NÃ£o Atendidas</div><div class="v" id="dash_nao_atendidas">0</div><div class="d" id="dash_nao_atendidas_delta"></div></div>
-              <div class="dash-card" id="dash_card_taxa"><div class="k" title="Percentual de solicitaÃ§Ãµes atendidas em relaÃ§Ã£o ao total do perÃ­odo filtrado.">Taxa Atendimento</div><div class="v" id="dash_taxa">0%</div><div class="d" id="dash_taxa_delta"></div></div>
-              <div class="dash-card"><div class="k" title="Tempo mÃ©dio (em minutos) entre solicitaÃ§Ã£o e atendimento.">SLA MÃ©dio (min)</div><div class="v" id="dash_sla">0</div><div class="d" id="dash_sla_delta"></div></div>
-              <div class="dash-card"><div class="k" title="MÃ©dia do percentual de lance informado nas solicitaÃ§Ãµes do perÃ­odo.">Lance MÃ©dio</div><div class="v" id="dash_lance">0%</div><div class="d" id="dash_lance_delta"></div></div>
-              <div class="dash-card"><div class="k" title="Tempo decorrido desde a Ãºltima solicitaÃ§Ã£o atendida (saÃºde operacional).">ÃƒÆ’Ã†â€™Ãƒâ€¦Ã‚Â¡ltima Atendida</div><div class="v" id="dash_ultima_delta">--</div><div class="d" id="dash_ultima_em"></div></div>
+              <div class="dash-card" onclick="openDashboardDetails('total')"><div class="k" title="Quantidade total de solicitações no período e filtros selecionados.">Solicitações</div><div class="v" id="dash_total">0</div><div class="d" id="dash_total_delta"></div></div>
+              <div class="dash-card" onclick="openDashboardDetails('atendidas')"><div class="k" title="Solicitações marcadas como atendidas no período e filtros selecionados.">Atendidas</div><div class="v" id="dash_atendidas">0</div><div class="d" id="dash_atendidas_delta"></div></div>
+              <div class="dash-card" onclick="openDashboardDetails('nao_atendidas')"><div class="k" title="Solicitações ainda não atendidas no período e filtros selecionados.">Não Atendidas</div><div class="v" id="dash_nao_atendidas">0</div><div class="d" id="dash_nao_atendidas_delta"></div></div>
+              <div class="dash-card" id="dash_card_taxa"><div class="k" title="Percentual de solicitações atendidas em relação ao total do período filtrado.">Taxa Atendimento</div><div class="v" id="dash_taxa">0%</div><div class="d" id="dash_taxa_delta"></div></div>
+              <div class="dash-card"><div class="k" title="Tempo médio (em minutos) entre solicitação e atendimento.">SLA Médio (min)</div><div class="v" id="dash_sla">0</div><div class="d" id="dash_sla_delta"></div></div>
+              <div class="dash-card"><div class="k" title="Média do percentual de lance informado nas solicitações do período.">Lance Médio</div><div class="v" id="dash_lance">0%</div><div class="d" id="dash_lance_delta"></div></div>
+              <div class="dash-card"><div class="k" title="Tempo decorrido desde a última solicitação atendida (saúde operacional).">ÃƒÆ’Ã…Â¡ltima Atendida</div><div class="v" id="dash_ultima_delta">--</div><div class="d" id="dash_ultima_em"></div></div>
             </div>
 
             <div class="dash-layout">
               <div class="dash-box">
-                <h4>EvoluÃ§Ã£o por Dia (Ãºltimos 14)</h4>
+                <h4>Evolução por Dia (últimos 14)</h4>
                 <div id="dash_series" class="dash-bars"></div>
               </div>
               <div class="dash-box">
-                <h4>EvoluÃ§Ã£o por Hora</h4>
+                <h4>Evolução por Hora</h4>
                 <div id="dash_series_hour" class="dash-bars"></div>
               </div>
               <div class="dash-box">
-                <h4>Filiais com Mais SolicitaÃ§Ãµes</h4>
+                <h4>Filiais com Mais Solicitações</h4>
                 <table class="dash-mini-table">
                   <thead><tr><th>Filial</th><th>Total</th><th>Atendidas</th><th>Taxa</th></tr></thead>
                   <tbody id="dash_filiais"></tbody>
                 </table>
               </div>
               <div class="dash-box">
-                <h4>Vendedores com Mais SolicitaÃ§Ãµes</h4>
+                <h4>Vendedores com Mais Solicitações</h4>
                 <table class="dash-mini-table">
                   <thead><tr><th>Vendedor</th><th>Total</th><th>Atendidas</th><th>Taxa</th></tr></thead>
                   <tbody id="dash_vendedores"></tbody>
@@ -158,9 +158,9 @@
                 </table>
               </div>
               <div class="dash-box api-health">
-                <h4>SaÃºde da API (sessÃ£o atual)</h4>
+                <h4>Saúde da API (sessão atual)</h4>
                 <div class="api-health-grid">
-                  <div class="api-health-item"><div class="k">LatÃªncia MÃ©dia</div><div class="v" id="dash_api_latency">0 ms</div></div>
+                  <div class="api-health-item"><div class="k">Latência Média</div><div class="v" id="dash_api_latency">0 ms</div></div>
                   <div class="api-health-item"><div class="k">Timeouts</div><div class="v" id="dash_api_timeout">0</div></div>
                   <div class="api-health-item"><div class="k">HTTP 4xx</div><div class="v" id="dash_api_4xx">0</div></div>
                   <div class="api-health-item"><div class="k">HTTP 5xx</div><div class="v" id="dash_api_5xx">0</div></div>
@@ -567,7 +567,7 @@
                   </select>
                 </div>
                 <div class="field">
-                  <label>Pesquisar mensagens (id, solicitaÃƒÂ§ÃƒÂ£o, vendedor, cpf, filial, texto)</label>
+                  <label>Pesquisar mensagens (id, solicitaÃ§Ã£o, vendedor, cpf, filial, texto)</label>
                   <input id="msg_search" placeholder="Ex: 12, 1024, Manoel, 05722137359, TER" />
                 </div>
                 <div style="display:flex; align-items:flex-end;">
@@ -591,7 +591,7 @@
                     <tr>
                       <th><input type="checkbox" id="msg_select_all" onchange="toggleSelectAllManualNotifications()" /></th>
                       <th>ID</th>
-                      <th>SolicitaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o</th>
+                      <th>SolicitaÃƒÂ§ÃƒÂ£o</th>
                       <th>Vendedor</th>
                       <th>Filial</th>
                       <th>CPF</th>
@@ -601,11 +601,11 @@
                       <th>Copiada</th>
                       <th>Enviada</th>
                       <th>message</th>
-                      <th>AÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Âµes</th>
+                      <th>AÃƒÂ§ÃƒÂµes</th>
                     </tr>
                   </thead>
                   <tbody id="msgTableBody">
-                    <tr><td colspan="13">Sem resultados. FaÃƒÆ’Ã‚Â§a uma busca.</td></tr>
+                    <tr><td colspan="13">Sem resultados. FaÃƒÂ§a uma busca.</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -656,7 +656,7 @@
         <aside class="panel log-panel hidden" id="reserve-log-panel">
           <div class="panel-head">
             <div>
-              <h2>Console de ExecuÃ§Ã£o</h2>
+              <h2>Console de Execução</h2>
               <p>Eventos em tempo real da rotina e retorno da API.</p>
             </div>
             <button class="btn" onclick="clearLogs()">Limpar</button>
@@ -669,37 +669,37 @@
         <section class="panel">
           <div class="panel-head">
             <div>
-              <h2>ConfiguraÃ§Ã£o</h2>
-              <p>Gerencie usuÃ¡rios e parÃ¡Â¢metros de banco de dados.</p>
+              <h2>Configuração</h2>
+              <p>Gerencie usuários e pará¢metros de banco de dados.</p>
             </div>
           </div>
 
           <div class="panel-body">
             <div class="config-sections">
-              <button type="button" class="config-tab active" data-config-tab="idsgrupos" onclick="openConfigSection('idsgrupos')">Ids Grupos DisponÃ­veis</button>
-              <button type="button" class="config-tab" data-config-tab="users" onclick="openConfigSection('users')">ConfiguraÃ§Ãµes de UsuÃ¡rio</button>
-              <button type="button" class="config-tab" data-config-tab="appusers" onclick="openConfigSection('appusers')">UsuÃ¡rios do Sistema</button>
+              <button type="button" class="config-tab active" data-config-tab="idsgrupos" onclick="openConfigSection('idsgrupos')">Ids Grupos Disponíveis</button>
+              <button type="button" class="config-tab" data-config-tab="users" onclick="openConfigSection('users')">Configurações de Usuário</button>
+              <button type="button" class="config-tab" data-config-tab="appusers" onclick="openConfigSection('appusers')">Usuários do Sistema</button>
               <button type="button" class="config-tab" data-config-tab="rbac" onclick="openConfigSection('rbac')">Controle de Acessos</button>
               <button type="button" class="config-tab" data-config-tab="audit" onclick="openConfigSection('audit')">Auditoria</button>
               <button type="button" class="config-tab" data-config-tab="active_groups" onclick="openConfigSection('active_groups')">Grupos Ativos</button>
               <button type="button" class="config-tab" data-config-tab="assemblies" onclick="openConfigSection('assemblies')">Assembleia</button>
               <button type="button" class="config-tab" data-config-tab="models" onclick="openConfigSection('models')">Modelos</button>
               <button type="button" class="config-tab" data-config-tab="produtos" onclick="openConfigSection('produtos')">Produtos</button>
-              <button type="button" class="config-tab" data-config-tab="database" onclick="openConfigSection('database')">ConfiguraÃ§Ãµes de Banco de Dados</button>
+              <button type="button" class="config-tab" data-config-tab="database" onclick="openConfigSection('database')">Configurações de Banco de Dados</button>
             </div>
 
             
             <section id="config-rbac" class="config-section hidden">
               <div class="auth-toolbar">
-                 <h3>Matriz de PermissÃµes (RBAC)</h3>
-                 <p>Controle o acesso de cada perfil do sistema clicando em Editar para habilitar ou desabilitar permissÃµes especÃ­ficas.</p>
+                 <h3>Matriz de Permissões (RBAC)</h3>
+                 <p>Controle o acesso de cada perfil do sistema clicando em Editar para habilitar ou desabilitar permissões específicas.</p>
               </div>
               <div class="auth-table-wrap" style="margin-top:15px;">
                 <table class="auth-table" id="rbac-table">
                   <thead id="rbac-thead">
                     <tr>
                       <th>Perfil</th>
-                      <th style="width: 100px;">AÃ§Ãµes</th>
+                      <th style="width: 100px;">Ações</th>
                     </tr>
                   </thead>
                   <tbody id="rbac-tbody">
@@ -711,7 +711,7 @@
             <section id="config-audit" class="config-section hidden">
               <div class="auth-toolbar">
                  <h3>Trilha de Auditoria</h3>
-                 <p>HistÃ³rico de aÃ§Ãµes administrativas realizadas no sistema.</p>
+                 <p>Histórico de ações administrativas realizadas no sistema.</p>
                  <button class="btn" style="margin-top: 10px;" onclick="loadAuditLogs()">Atualizar</button>
               </div>
               <div class="auth-search-row" style="margin-top: 10px;">
@@ -725,8 +725,8 @@
                   <thead>
                     <tr>
                       <th style="width: 19ch;">Data/Hora</th>
-                      <th style="width: 12ch;">UsuÃ¡rio</th>
-                      <th style="width: 14ch;">AÃ§Ã£o</th>
+                      <th style="width: 12ch;">Usuário</th>
+                      <th style="width: 14ch;">Ação</th>
                       <th style="width: 10ch;">Entidade</th>
                       <th style="width: 8ch;">ID</th>
                       <th>Detalhes</th>
@@ -742,7 +742,7 @@
             <section id="config-appusers" class="config-section hidden">
               <div class="auth-search-row">
                 <div class="field">
-                  <label>Pesquisar usuÃƒÂ¡rio do sistema (id, username, nome, cpf, filial, email, perfil)</label>
+                  <label>Pesquisar usuÃ¡rio do sistema (id, username, nome, cpf, filial, email, perfil)</label>
                   <input id="appuser_search" placeholder="Ex: 1, admin, idelfonso, 11888140879, BAR, administrador@empresa.com" />
                 </div>
                 <div style="display:flex; align-items:flex-end;">
@@ -758,7 +758,7 @@
               </div>
 
               <div class="auth-toolbar">
-                <button class="btn" onclick="openAppUserCreateModal()">Novo UsuÃ¡rio</button>
+                <button class="btn" onclick="openAppUserCreateModal()">Novo Usuário</button>
               </div>
 
               <div class="auth-table-wrap">
@@ -788,11 +788,11 @@
                       <th>Perfil</th>
                       <th>Ativo</th>
                       <th>&Uacute;ltimo Login</th>
-                      <th>AÃ§Ãµes</th>
+                      <th>Ações</th>
                     </tr>
                   </thead>
                   <tbody id="appuserTableBody">
-                    <tr><td colspan="11">Sem resultados. FaÃ§a uma busca.</td></tr>
+                    <tr><td colspan="11">Sem resultados. Faça uma busca.</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -801,7 +801,7 @@
             <section id="config-users" class="config-section">
               <div class="auth-search-row">
                 <div class="field">
-                  <label>Pesquisar usuÃ¡rio (id, cpf, usuÃ¡rio, Cod. Empresa)</label>
+                  <label>Pesquisar usuário (id, cpf, usuário, Cod. Empresa)</label>
                   <input id="auth_search" placeholder="Ex: 1, 05722137359, DENILSON ou 1018124" />
                 </div>
                 <div style="display:flex; align-items:flex-end;">
@@ -817,9 +817,9 @@
               </div>
 
               <div class="auth-toolbar">
-                <button class="btn" onclick="openAuthCreateModal()">Novo UsuÃ¡rio</button>
+                <button class="btn" onclick="openAuthCreateModal()">Novo Usuário</button>
                 <button class="btn" onclick="authenticateSelectedUsers()">Autenticar Selecionados</button>
-                <button class="btn" onclick="reportUnauthenticatedUsers()">NÃ£o Autenticados</button>
+                <button class="btn" onclick="reportUnauthenticatedUsers()">Não Autenticados</button>
               </div>
 
               <div class="auth-table-wrap" id="idsgTableWrap">
@@ -830,14 +830,14 @@
                       <th>ID</th>
                       <th>Cod. Empresa</th>
                       <th>CPF</th>
-                      <th>UsuÃ¡rio</th>
+                      <th>Usuário</th>
                       <th>Senha</th>
                       <th>Token</th>
-                      <th>AÃ§Ãµes</th>
+                      <th>Ações</th>
                     </tr>
                   </thead>
                   <tbody id="authTableBody">
-                    <tr><td colspan="8">Sem resultados. FaÃ§a uma busca.</td></tr>
+                    <tr><td colspan="8">Sem resultados. Faça uma busca.</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -846,7 +846,7 @@
             <section id="config-active_groups" class="config-section hidden">
               <div class="auth-search-row idsg-search-row ga-search-row">
                 <div class="field">
-                  <label>Busca rápida (global)</label>
+                  <label>Busca r�pida (global)</label>
                   <input id="ga_search" placeholder="Ex: 42001, Conquista, G, Ativo" />
                 </div>
                 <div class="field">
@@ -908,11 +908,11 @@
                       <th>Tipo</th>
                       <th>Modelos</th>
                       <th>Status</th>
-                      <th>Ações</th>
+                      <th>A��es</th>
                     </tr>
                   </thead>
                   <tbody id="gaTableBody">
-                    <tr><td colspan="14">Sem resultados. Faça uma busca.</td></tr>
+                    <tr><td colspan="14">Sem resultados. Fa�a uma busca.</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -941,7 +941,7 @@
                   </select>
                 </div>
                 <div class="field">
-                  <label>Pesquisar ids grupos disponÃƒÂ­veis (qualquer coluna)</label>
+                  <label>Pesquisar ids grupos disponÃ­veis (qualquer coluna)</label>
                   <input id="idsg_search" placeholder="Ex: 62904808, 172, 00025, 1, etc." />
                 </div>
                 <div style="display:flex; align-items:flex-end;">
@@ -981,11 +981,11 @@
                       <th>Reser.</th>
                       <th>Atualizado</th>
                       <th>Falhas</th>
-                      <th>AÃ§Ãµes</th>
+                      <th>Ações</th>
                     </tr>
                   </thead>
                   <tbody id="idsgTableBody">
-                    <tr><td colspan="17">Sem resultados. FaÃ§a uma busca.</td></tr>
+                    <tr><td colspan="17">Sem resultados. Faça uma busca.</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -1063,11 +1063,11 @@
                       <th>ID Modelo</th>
                       <th>Modelo</th>
                       <th>Status</th>
-                      <th>AÃ§Ãµes</th>
+                      <th>Ações</th>
                     </tr>
                   </thead>
                   <tbody id="modeloTableBody">
-                    <tr><td colspan="5">Sem resultados. FaÃ§a uma busca.</td></tr>
+                    <tr><td colspan="5">Sem resultados. Faça uma busca.</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -1101,11 +1101,11 @@
                       <th>ID Produto</th>
                       <th>Produto</th>
                       <th>Status</th>
-                      <th>AÃ§Ãµes</th>
+                      <th>Ações</th>
                     </tr>
                   </thead>
                   <tbody id="produtoTableBody">
-                    <tr><td colspan="5">Sem resultados. FaÃ§a uma busca.</td></tr>
+                    <tr><td colspan="5">Sem resultados. Faça uma busca.</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -1159,13 +1159,6 @@
       <div class="diag-body dash-details-body">
         <div class="auth-table-wrap">
           <table class="auth-table dash-details-table">
-            <colgroup>
-              <col style="width:5ch;" />
-              <col style="width:14ch;" />
-              <col style="width:8ch;" />
-              <col style="width:20ch;" />
-              <col style="width:10ch;" />
-            </colgroup>
             <thead>
               <tr>
                 <th>ID</th>
@@ -1188,7 +1181,7 @@
     <div class="modal-card" onclick="event.stopPropagation()">
       <div class="modal-head">
         <div>
-          <h3>Mensagens de SolicitaÃ§Ãµes Atendidas</h3>
+          <h3>Mensagens de Solicitações Atendidas</h3>
           <p class="modal-sub">Selecione as mensagens e clique em copiar para enviar no WhatsApp.</p>
         </div>
         <div style="display:flex; gap:8px; align-items:center;">
@@ -1207,7 +1200,7 @@
       <div class="modal-head">
         <div>
           <h3>Monitoramento</h3>
-          <p class="modal-sub">Acompanhamento em tempo real da execuÃ§Ã£o.</p>
+          <p class="modal-sub">Acompanhamento em tempo real da execução.</p>
         </div>
         <button class="btn" onclick="closeMonitoringModal()">Fechar</button>
       </div>
@@ -1245,7 +1238,7 @@
     <div class="modal-card" onclick="event.stopPropagation()">
       <div class="modal-head">
         <div>
-          <h3>Logs e DiagnÃ³stico</h3>
+          <h3>Logs e Diagnóstico</h3>
           <p class="modal-sub">Arquivos da pasta log em ordem cronologica (mais recente primeiro).</p>
         </div>
         <div style="display:flex; gap:8px; align-items:center;">
@@ -1260,7 +1253,7 @@
             <div>Arquivo</div>
             <div>Data</div>
             <div>Tamanho</div>
-            <div>AÃ§Ãµes</div>
+            <div>Ações</div>
           </div>
           <div class="diag-row"><div>Carregando...</div></div>
         </div>
@@ -1272,11 +1265,11 @@
     <div class="modal-card auth-modal-card" onclick="event.stopPropagation()">
       <div class="modal-head">
         <div>
-          <h3 id="authModalTitle">Editar UsuÃ¡rio</h3>
+          <h3 id="authModalTitle">Editar Usuário</h3>
           <p class="modal-sub">Atualiza registro da tabela auth.</p>
         </div>
         <div style="display:flex; gap:8px; align-items:center;">
-          <button class="btn" onclick="prepareAuthCreateForm()">Novo UsuÃ¡rio</button>
+          <button class="btn" onclick="prepareAuthCreateForm()">Novo Usuário</button>
           <button class="btn" onclick="closeAuthEditModal()">Fechar</button>
         </div>
       </div>
@@ -1354,7 +1347,7 @@
     <div class="modal-card auth-modal-card" onclick="event.stopPropagation()">
       <div class="modal-head">
         <div>
-          <h3 id="idsgModalTitle">Editar Ids Grupos DisponÃƒÂ­veis</h3>
+          <h3 id="idsgModalTitle">Editar Ids Grupos DisponÃ­veis</h3>
           <p class="modal-sub">Atualiza registro da tabela available_group_ids.</p>
         </div>
         <div style="display:flex; gap:8px; align-items:center;">
@@ -1544,7 +1537,7 @@
           <div class="field"><label>Filial</label><input id="appuser_filial" placeholder="Ex: Matriz" /></div>
           <div class="field"><label>Perfil de Acesso</label><select id="appuser_role"><option value="admin">admin</option><option value="operador">operador</option><option value="vendedor">vendedor</option><option value="viewer">viewer</option></select></div>
           <div class="field"><label>Status (Ativo)</label><select id="appuser_is_active"><option value="1">Sim</option><option value="0">N&atilde;o</option></select></div>
-          <div class="field field-alert"><label>Definir Nova Senha</label><input id="appuser_password" type="password" placeholder="SÃƒÂ³ preencha para alterar/criar" /></div>
+          <div class="field field-alert"><label>Definir Nova Senha</label><input id="appuser_password" type="password" placeholder="SÃ³ preencha para alterar/criar" /></div>
           <div class="field"><label>Tentativas Falhas</label><input id="appuser_failed_login_attempts" class="readonly" readonly /></div>
           <div class="field"><label>Bloqueado At&eacute;</label><input id="appuser_locked_until" class="readonly" readonly /></div>
           <div class="field"><label>&Uacute;ltimo Acesso</label><input id="appuser_last_login_at" class="readonly" readonly /></div>
@@ -1580,8 +1573,8 @@
     <div class="modal-card auth-modal-card" onclick="event.stopPropagation()">
       <div class="modal-head">
         <div>
-          <h3 id="rbacModalTitle">Editar PermissÃµes</h3>
-          <p class="modal-sub">Marque ou desmarque as permissÃµes para o perfil atual.</p>
+          <h3 id="rbacModalTitle">Editar Permissões</h3>
+          <p class="modal-sub">Marque ou desmarque as permissões para o perfil atual.</p>
         </div>
         <div style="display:flex; gap:8px; align-items:center;">
           <button class="btn" onclick="closeRBACEditModal()">Fechar</button>
@@ -1590,10 +1583,10 @@
       <div class="diag-body">
         <input type="hidden" id="rbacModalRoleIndex">
         <div id="rbacModalList" style="max-height: 400px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; padding: 0 5px;">
-          <!-- Checkboxes virÃ£o via JS -->
+          <!-- Checkboxes virão via JS -->
         </div>
         <div class="form-footer">
-          <button class="btn" data-icon="save" onclick="saveRBACEditModal()">Salvar AlteraÃ§Ãµes</button>
+          <button class="btn" data-icon="save" onclick="saveRBACEditModal()">Salvar Alterações</button>
         </div>
       </div>
     </div>
@@ -1646,7 +1639,7 @@
   <div id="loginOverlay" class="login-overlay hidden">
     <div class="login-screen">
       <section class="login-visual">
-        <img src="https://images.unsplash.com/photo-1558981806-ec527fa84c39?auto=format&fit=crop&w=1600&q=80"
+        <img src="/static/login-bg-honda.jpg"
              alt="Moto Honda"
              referrerpolicy="no-referrer"
              onerror="this.onerror=null;this.src='/static/login-visual.svg';" />
@@ -1678,7 +1671,7 @@
             </div>
             
             <div id="mfaChallengeFields" class="hidden">
-              <p class="mfa-info">Este usuÃ¡rio possui autenticaÃ§Ã£o de dois fatores ativa.</p>
+              <p class="mfa-info">Este usuário possui autenticação de dois fatores ativa.</p>
               <div class="field">
                 <label>C&oacute;digo do Aplicativo</label>
                 <input id="login_mfa_code" placeholder="000000" maxlength="6" inputmode="numeric" />
@@ -1686,7 +1679,7 @@
               <p id="mfa_login_error" class="login-error"></p>
               <div class="form-footer" style="margin-top:8px; padding-top:10px; display:flex; flex-direction:column; gap:8px;">
                 <button class="btn" onclick="verifyMFALogin()">Verificar C&oacute;digo</button>
-                <button class="btn-text" onclick="cancelMFALogin()" style="font-size:12px; color:var(--text-dim); cursor:pointer; background:none; border:none;">Voltar para UsuÃ¡rio/Senha</button>
+                <button class="btn-text" onclick="cancelMFALogin()" style="font-size:12px; color:var(--text-dim); cursor:pointer; background:none; border:none;">Voltar para Usuário/Senha</button>
               </div>
             </div>
           </div>
