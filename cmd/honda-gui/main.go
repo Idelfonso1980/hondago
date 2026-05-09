@@ -579,6 +579,7 @@ type appUserPayload struct {
 	Search              string `json:"search,omitempty"`
 	Username            string `json:"username"`
 	DisplayName         string `json:"full_name"`
+	Manager             string `json:"manager,omitempty"`
 	Supervisor          string `json:"supervisor,omitempty"`
 	CPF                 string `json:"cpf,omitempty"`
 	Filial              string `json:"branch,omitempty"`
@@ -1112,6 +1113,7 @@ func appUserToPayload(r *db.AppUserRecord) appUserPayload {
 		ID:                  r.ID,
 		Username:            r.Username,
 		DisplayName:         r.DisplayName,
+		Manager:             strings.TrimSpace(r.Manager.String),
 		Supervisor:          strings.TrimSpace(r.Supervisor.String),
 		CPF:                 strings.TrimSpace(r.CPF.String),
 		Filial:              strings.TrimSpace(r.Filial.String),
@@ -1338,6 +1340,7 @@ func (a *app) handleAppUserSave(w http.ResponseWriter, r *http.Request) {
 		ID:          p.ID,
 		Username:    strings.TrimSpace(p.Username),
 		DisplayName: strings.TrimSpace(p.DisplayName),
+		Manager:     sql.NullString{String: strings.TrimSpace(p.Manager), Valid: strings.TrimSpace(p.Manager) != ""},
 		Supervisor:  sql.NullString{String: strings.TrimSpace(p.Supervisor), Valid: strings.TrimSpace(p.Supervisor) != ""},
 		CPF:         sql.NullString{String: onlyDigitsLocal(p.CPF), Valid: strings.TrimSpace(p.CPF) != ""},
 		Filial:      sql.NullString{String: strings.TrimSpace(p.Filial), Valid: strings.TrimSpace(p.Filial) != ""},
@@ -1875,6 +1878,16 @@ func (a *app) handleSolicitacoesSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess, ok := a.currentSession(r)
+	if ok && isGerenteRole(sess.Role) {
+		filtered := make([]db.SolicitacaoRecord, 0, len(records))
+		branch := strings.ToLower(strings.TrimSpace(sess.branch))
+		for i := range records {
+			if branch == "" || strings.ToLower(strings.TrimSpace(records[i].Filial)) == branch {
+				filtered = append(filtered, records[i])
+			}
+		}
+		records = filtered
+	}
 	if ok && isSupervisorRole(sess.Role) {
 		subordinates, err := store.ListSubordinatesBySupervisor(r.Context(), sess.Username, 5000)
 		if err != nil {
@@ -1949,6 +1962,10 @@ func normalizeRoleLocal(role string) string {
 
 func isSupervisorRole(role string) bool {
 	return normalizeRoleLocal(role) == "supervisor"
+}
+
+func isGerenteRole(role string) bool {
+	return normalizeRoleLocal(role) == "gerente"
 }
 
 func matchesSupervisorSubordinate(rec *db.SolicitacaoRecord, subordinates []db.AppUserRecord) bool {
@@ -2142,6 +2159,7 @@ func (a *app) handleMinhasSolicitacoesSearch(w http.ResponseWriter, r *http.Requ
 	sessionFilial := strings.ToLower(strings.TrimSpace(sess.branch))
 	isAdmin := strings.EqualFold(strings.TrimSpace(sess.Role), "admin")
 	isSupervisor := isSupervisorRole(sess.Role)
+	isGerente := isGerenteRole(sess.Role)
 	subordinates := []db.AppUserRecord{}
 	if isSupervisor {
 		subordinates, err = store.ListSubordinatesBySupervisor(r.Context(), sess.Username, 5000)
@@ -2160,8 +2178,13 @@ func (a *app) handleMinhasSolicitacoesSearch(w http.ResponseWriter, r *http.Requ
 				continue
 			}
 		}
+		if isGerente {
+			if sessionFilial != "" && strings.ToLower(strings.TrimSpace(rec.Filial)) != sessionFilial {
+				continue
+			}
+		}
 
-		if !isAdmin && !isSupervisor {
+		if !isAdmin && !isSupervisor && !isGerente {
 			recCPF := onlyDigitsLocal(strings.TrimSpace(rec.CPF))
 			recName := strings.ToLower(strings.TrimSpace(rec.Vendedor))
 			recFilial := strings.ToLower(strings.TrimSpace(rec.Filial))
@@ -2221,6 +2244,12 @@ func (a *app) handleSolicitacaoGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess, ok := a.currentSession(r)
+	if ok && isGerenteRole(sess.Role) {
+		if strings.TrimSpace(sess.branch) != "" && !strings.EqualFold(strings.TrimSpace(sess.branch), strings.TrimSpace(rec.Filial)) {
+			writeErr(w, http.StatusForbidden, fmt.Errorf("acesso negado"))
+			return
+		}
+	}
 	if ok && isSupervisorRole(sess.Role) {
 		subordinates, err := store.ListSubordinatesBySupervisor(r.Context(), sess.Username, 5000)
 		if err != nil {
@@ -2796,6 +2825,9 @@ func (a *app) handleDashboardSummary(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if sess != nil && isGerenteRole(sess.Role) && strings.TrimSpace(sess.branch) != "" {
+		filialSel = strings.TrimSpace(sess.branch)
+	}
 
 	atendidaCond := `( (status IS NOT NULL AND LOWER(TRIM(status)) LIKE 'atendid%') OR
 		(served_at IS NOT NULL AND TRIM(CAST(served_at AS TEXT)) <> '') OR
@@ -3109,6 +3141,9 @@ func (a *app) handleDashboardDetails(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusInternalServerError, err)
 			return
 		}
+	}
+	if sess != nil && isGerenteRole(sess.Role) && strings.TrimSpace(sess.branch) != "" {
+		filialSel = strings.TrimSpace(sess.branch)
 	}
 
 	atendidaCond := `( (status IS NOT NULL AND LOWER(TRIM(status)) LIKE 'atendid%') OR
@@ -5928,14 +5963,53 @@ func (a *app) handleRBACMatrixUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	normalizePerms := func(in []string) []string {
+		set := make(map[string]struct{}, len(in))
+		for _, p := range in {
+			v := strings.TrimSpace(p)
+			if v == "" {
+				continue
+			}
+			set[v] = struct{}{}
+		}
+		out := make([]string, 0, len(set))
+		for p := range set {
+			out = append(out, p)
+		}
+		sort.Strings(out)
+		return out
+	}
+	equalPermSets := func(aSet, bSet []string) bool {
+		if len(aSet) != len(bSet) {
+			return false
+		}
+		for i := range aSet {
+			if aSet[i] != bSet[i] {
+				return false
+			}
+		}
+		return true
+	}
+
 	for _, role := range payload.Roles {
-		if err := store.UpdateRolePermissions(r.Context(), role.RoleName, role.Permissions); err != nil {
+		currentPerms, err := store.GetRolePermissions(r.Context(), role.RoleName)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		before := normalizePerms(currentPerms)
+		after := normalizePerms(role.Permissions)
+		if equalPermSets(before, after) {
+			continue
+		}
+
+		if err := store.UpdateRolePermissions(r.Context(), role.RoleName, after); err != nil {
 			writeErr(w, http.StatusInternalServerError, err)
 			return
 		}
 
 		// Auditoria
-		a.logAudit(r, "UPDATE_RBAC", "roles", role.RoleName, "", strings.Join(role.Permissions, ","))
+		a.logAudit(r, "UPDATE_RBAC", "roles", role.RoleName, strings.Join(before, ","), strings.Join(after, ","))
 
 		// Invalida sessÃƒÂµes no banco para este perfil para forÃƒÂ§ar recarregamento das permissÃƒÂµes
 		if err := store.DeleteAppSessionsByRole(r.Context(), role.RoleName); err != nil {
