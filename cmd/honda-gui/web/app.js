@@ -4,7 +4,7 @@
     const solicitacaoFields = ["sol_id","sol_data_hora_solicitacao","sol_filial","sol_vendedor","sol_cpf","sol_modelo","sol_plano","sol_qtde_parcelas","sol_perc_lance","sol_com_restricao","sol_grupo","sol_observacao","sol_id_cota","sol_grupo_atendido","sol_cota_r_d","sol_data_hora_atendimento","sol_situacao","sol_lance_contemplacao"];
     const idsgFields = ["idsg_id","idsg_id_grupo","idsg_produto","idsg_vencimento","idsg_prazo","idsg_tipo","idsg_grupo","idsg_cota","idsg_r","idsg_d","idsg_parcelas_calc","idsg_booked","idsg_created_at","idsg_participantes","idsg_failed"];
     const gruposAtivosFields = ["ga_id","ga_grupo","ga_vencimento","ga_qtd_participantes","ga_data_assembleia_inaugural","ga_plano","ga_prazo","ga_tipo_grupo","ga_modelos","ga_status","ga_created_at","ga_updated_at"];
-    const appUserFields = ["appuser_id","appuser_username","appuser_display_name","appuser_phone","appuser_cpf","appuser_filial","appuser_email","appuser_role","appuser_is_active","appuser_password","appuser_failed_login_attempts","appuser_locked_until","appuser_last_login_at","appuser_updated_at","appuser_created_at"];
+    const appUserFields = ["appuser_id","appuser_username","appuser_display_name","appuser_phone","appuser_cpf","appuser_filial","appuser_email","appuser_role","appuser_supervisor","appuser_is_active","appuser_password","appuser_failed_login_attempts","appuser_locked_until","appuser_last_login_at","appuser_updated_at","appuser_created_at"];
     const solicitarFields = ["request_filial","request_data_hora_solicitacao","request_vendedor","request_cpf","request_modelo","request_plano","request_qtde_parcelas","request_perc_lance","request_com_restricao","request_grupo","request_observacao"];
     const modeloFields = ["modelo_id","modelo_idmodelo","modelo_nome","modelo_status"];
     const produtoFields = ["produto_id","produto_idproduto","produto_nome","produto_status"];
@@ -1189,6 +1189,7 @@
       document.getElementById("appuser_phone").value = data.phone || "";
       document.getElementById("appuser_email").value = data.email || "";
       document.getElementById("appuser_role").value = normalizeRoleValue(data.role || "operador");
+      document.getElementById("appuser_supervisor").value = data.supervisor || "";
       document.getElementById("appuser_is_active").value = data.is_active ? "1" : "0";
       document.getElementById("appuser_password").value = "";
       document.getElementById("appuser_failed_login_attempts").value = data.failed_login_attempts || 0;
@@ -1208,6 +1209,7 @@
         email: document.getElementById("appuser_email").value || "",
         phone: (document.getElementById("appuser_phone").value || "").replace(/\D/g, ""),
         role: normalizeRoleValue(document.getElementById("appuser_role").value || "operador"),
+        supervisor: document.getElementById("appuser_supervisor").value || "",
         is_active: document.getElementById("appuser_is_active").value === "1",
         password: document.getElementById("appuser_password").value || ""
       };
@@ -1247,7 +1249,7 @@
       appUserRows = Array.isArray(items) ? items : [];
       const body = document.getElementById("appuserTableBody");
       if (!appUserRows.length) {
-        body.innerHTML = "<tr><td colspan=\"11\">Nenhum registro encontrado.</td></tr>";
+        body.innerHTML = "<tr><td colspan=\"12\">Nenhum registro encontrado.</td></tr>";
         return;
       }
       const rows = appUserRows.map((u) => {
@@ -1263,6 +1265,7 @@
           "<td>" + escapeHtml(u.phone || "") + "</td>" +
           "<td>" + escapeHtml(normalizeRoleValue(u.role || "")) + "</td>" +
           "<td>" + escapeHtml(active) + "</td>" +
+          "<td>" + escapeHtml(u.supervisor || "") + "</td>" +
           "<td>" + escapeHtml(formatDateTimeBRSeconds(u.last_login_at || "")) + "</td>" +
           "<td><div class=\"auth-actions\">" +
             "<button type=\"button\" class=\"auth-action-btn\" title=\"Editar\" aria-label=\"Editar\" onclick=\"openAppUserEditModal(" + String(id) + ")\">" + authActionIcon("edit") + "</button>" +
@@ -2232,6 +2235,7 @@
       const quota_rd = String(item.cota_rd || "").trim() || "-";
       const installments = String(item.installments || "").trim() || "-";
       const model_name = String(item.model_name || "").trim() || "-";
+      const with_restriction = String(item.with_restriction || "").trim() || "-";
       const solicitada = String(item.requested_at || "").trim();
       const atendida = String(item.served_at || "").trim();
       const sla = String(item.sla || "").trim();
@@ -2245,6 +2249,7 @@
       lines.push("Cota-R-D: " + quota_rd);
       lines.push("Parcelas: " + installments);
       lines.push("Modelo: " + model_name);
+      lines.push("Restrição: " + with_restriction);
       if (solicitada) lines.push("Solicitada: " + solicitada);
       if (atendida) lines.push("Atendida: " + atendida);
       if (sla) lines.push("SLA: " + sla);
@@ -4798,7 +4803,7 @@ function applyRBAC() {
     // Ocultar aba de usuarios se nao puder gerenciar
     const btnUser = document.querySelector('button[onclick="showConfigTab(\'appusers\')"]');
     if (btnUser) {
-        btnUser.style.display = hasPermission("users:manage") ? '' : 'none';
+        btnUser.style.display = hasPermission("users:read") ? '' : 'none';
     }
 
     // Ocultar aba de permissoes se nao for admin

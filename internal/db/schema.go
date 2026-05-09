@@ -28,8 +28,8 @@ func legacySchemas() []tableSchema {
 		},
 		{
 			Name:         "users",
-			CreateFormat: `CREATE TABLE %s ("id" INTEGER NOT NULL PRIMARY KEY, "username" VARCHAR(255) NOT NULL, "password_hash" VARCHAR(255) NOT NULL, "full_name" VARCHAR(255) NOT NULL DEFAULT '', "cpf" VARCHAR(32), "branch" VARCHAR(64), "email" VARCHAR(255), "phone" VARCHAR(20), "role" VARCHAR(64) NOT NULL DEFAULT 'operador', "is_active" INTEGER NOT NULL DEFAULT 1, "failed_login_attempts" INTEGER NOT NULL DEFAULT 0, "mfa_enabled" INTEGER NOT NULL DEFAULT 0, "mfa_secret" VARCHAR(255), "locked_until" DATETIME, "last_login_at" DATETIME, "updated_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "created_at" DATETIME NOT NULL)`,
-			Columns:      []string{"id", "username", "password_hash", "full_name", "cpf", "branch", "email", "phone", "role", "is_active", "failed_login_attempts", "mfa_enabled", "mfa_secret", "locked_until", "last_login_at", "updated_at", "created_at"},
+			CreateFormat: `CREATE TABLE %s ("id" INTEGER NOT NULL PRIMARY KEY, "username" VARCHAR(255) NOT NULL, "password_hash" VARCHAR(255) NOT NULL, "full_name" VARCHAR(255) NOT NULL DEFAULT '', "supervisor" VARCHAR(255), "cpf" VARCHAR(32), "branch" VARCHAR(64), "email" VARCHAR(255), "phone" VARCHAR(20), "role" VARCHAR(64) NOT NULL DEFAULT 'operador', "is_active" INTEGER NOT NULL DEFAULT 1, "failed_login_attempts" INTEGER NOT NULL DEFAULT 0, "mfa_enabled" INTEGER NOT NULL DEFAULT 0, "mfa_secret" VARCHAR(255), "locked_until" DATETIME, "last_login_at" DATETIME, "updated_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "created_at" DATETIME NOT NULL)`,
+			Columns:      []string{"id", "username", "password_hash", "full_name", "supervisor", "cpf", "branch", "email", "phone", "role", "is_active", "failed_login_attempts", "mfa_enabled", "mfa_secret", "locked_until", "last_login_at", "updated_at", "created_at"},
 		},
 		{
 			Name:         "api_accounts",
@@ -361,6 +361,7 @@ func (s *Store) ensurePostgresSchemaBootstrap(ctx context.Context) error {
 			username VARCHAR(255) NOT NULL,
 			password_hash VARCHAR(255) NOT NULL,
 			full_name VARCHAR(255) NOT NULL DEFAULT '',
+			supervisor VARCHAR(255),
 			cpf VARCHAR(32),
 			branch VARCHAR(64),
 			email VARCHAR(255),
@@ -548,6 +549,7 @@ func (s *Store) ensurePostgresSchemaBootstrap(ctx context.Context) error {
 			permissions TEXT,
 			authenticated_at TIMESTAMP NOT NULL
 		)`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS supervisor VARCHAR(255)`,
 		`ALTER TABLE role_permissions DROP CONSTRAINT IF EXISTS fk_role_permissions_role`,
 		`ALTER TABLE role_permissions ADD CONSTRAINT fk_role_permissions_role FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE`,
 		`ALTER TABLE api_accounts DROP CONSTRAINT IF EXISTS fk_api_accounts_user`,
@@ -570,6 +572,7 @@ func (s *Store) ensurePostgresSchemaBootstrap(ctx context.Context) error {
 		`CREATE UNIQUE INDEX IF NOT EXISTS ux_users_username ON users(username)`,
 		`CREATE INDEX IF NOT EXISTS idx_appuser_cpf ON users(cpf)`,
 		`CREATE INDEX IF NOT EXISTS idx_appuser_filial ON users(branch)`,
+		`CREATE INDEX IF NOT EXISTS idx_appuser_supervisor ON users(supervisor)`,
 		`CREATE INDEX IF NOT EXISTS idx_appuser_role ON users(role)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS ux_roles_name ON roles(name)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS ux_app_sessions_token ON app_sessions(token)`,
@@ -590,13 +593,25 @@ func (s *Store) ensurePostgresSchemaBootstrap(ctx context.Context) error {
 		`CREATE INDEX IF NOT EXISTS idx_reservations_request ON reservations(request_id)`,
 		`INSERT INTO roles (id, name, description) VALUES (1, 'admin', 'Administrador Global do Sistema') ON CONFLICT (id) DO NOTHING`,
 		`INSERT INTO roles (id, name, description) VALUES (2, 'operador', 'Operador de Vendas e Reservas') ON CONFLICT (id) DO NOTHING`,
+		`INSERT INTO roles (id, name, description) VALUES (3, 'vendedor', 'Vendedor') ON CONFLICT (id) DO NOTHING`,
+		`INSERT INTO roles (id, name, description) VALUES (4, 'viewer', 'Somente Leitura') ON CONFLICT (id) DO NOTHING`,
+		`INSERT INTO roles (id, name, description) VALUES (5, 'supervisor', 'Supervisor de Equipe') ON CONFLICT (id) DO NOTHING`,
 		`INSERT INTO role_permissions (role_id, permission_key) VALUES
 			(1,'dashboard:read'), (1,'solicitacoes:read'), (1,'solicitacoes:create'), (1,'solicitacoes:edit'), (1,'solicitacoes:delete'), (1,'solicitacoes:print'),
 			(1,'cotas:reserve'), (1,'cotas:export'), (1,'users:read'), (1,'users:create'), (1,'users:edit'), (1,'users:delete'),
-			(1,'roles:manage'), (1,'configs:manage'), (1,'logs:read'), (1,'logs:delete')
+			(1,'roles:manage'), (1,'configs:manage'), (1,'logs:read'), (1,'logs:delete'), (1,'audit:view')
 		ON CONFLICT DO NOTHING`,
 		`INSERT INTO role_permissions (role_id, permission_key) VALUES
 			(2,'dashboard:read'), (2,'solicitacoes:read'), (2,'solicitacoes:create'), (2,'solicitacoes:edit'), (2,'cotas:reserve')
+		ON CONFLICT DO NOTHING`,
+		`INSERT INTO role_permissions (role_id, permission_key) VALUES
+			(3,'dashboard:read'), (3,'solicitacoes:read'), (3,'solicitacoes:create'), (3,'solicitacoes:edit'), (3,'cotas:reserve')
+		ON CONFLICT DO NOTHING`,
+		`INSERT INTO role_permissions (role_id, permission_key) VALUES
+			(4,'dashboard:read'), (4,'solicitacoes:read')
+		ON CONFLICT DO NOTHING`,
+		`INSERT INTO role_permissions (role_id, permission_key) VALUES
+			(5,'dashboard:read'), (5,'solicitacoes:read')
 		ON CONFLICT DO NOTHING`,
 	}
 	for _, stmt := range stmts {
@@ -857,11 +872,20 @@ func (s *Store) ensureRolesSeed(ctx context.Context) error {
 	if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO roles (id, name, description) VALUES (2, 'operador', 'Operador de Vendas e Reservas')"); err != nil {
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO roles (id, name, description) VALUES (3, 'vendedor', 'Vendedor')"); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO roles (id, name, description) VALUES (4, 'viewer', 'Somente Leitura')"); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO roles (id, name, description) VALUES (5, 'supervisor', 'Supervisor de Equipe')"); err != nil {
+		return err
+	}
 
 	// Admin permissions (example mapping)
 	adminPerms := []string{
 		"dashboard:read", "solicitacoes:read", "solicitacoes:create", "solicitacoes:edit", "solicitacoes:delete", "solicitacoes:print",
-		"cotas:reserve", "cotas:export", "users:read", "users:create", "users:edit", "users:delete", "roles:manage", "configs:manage", "logs:read", "logs:delete",
+		"cotas:reserve", "cotas:export", "users:read", "users:create", "users:edit", "users:delete", "roles:manage", "configs:manage", "logs:read", "logs:delete", "audit:view",
 	}
 	for _, p := range adminPerms {
 		if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO role_permissions (role_id, permission_key) VALUES (1, ?)", p); err != nil {
@@ -875,6 +899,33 @@ func (s *Store) ensureRolesSeed(ctx context.Context) error {
 	}
 	for _, p := range operadorPerms {
 		if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO role_permissions (role_id, permission_key) VALUES (2, ?)", p); err != nil {
+			return err
+		}
+	}
+
+	vendedorPerms := []string{
+		"dashboard:read", "solicitacoes:read", "solicitacoes:create", "solicitacoes:edit", "cotas:reserve",
+	}
+	for _, p := range vendedorPerms {
+		if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO role_permissions (role_id, permission_key) VALUES (3, ?)", p); err != nil {
+			return err
+		}
+	}
+
+	viewerPerms := []string{
+		"dashboard:read", "solicitacoes:read",
+	}
+	for _, p := range viewerPerms {
+		if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO role_permissions (role_id, permission_key) VALUES (4, ?)", p); err != nil {
+			return err
+		}
+	}
+
+	supervisorPerms := []string{
+		"dashboard:read", "solicitacoes:read",
+	}
+	for _, p := range supervisorPerms {
+		if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO role_permissions (role_id, permission_key) VALUES (5, ?)", p); err != nil {
 			return err
 		}
 	}
@@ -923,6 +974,9 @@ func (s *Store) ensureAppUserIndexes(ctx context.Context) error {
 	}
 	if _, err := s.DB.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_appuser_filial ON users(branch)`); err != nil {
 		return fmt.Errorf("create idx_appuser_filial: %w", err)
+	}
+	if _, err := s.DB.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_appuser_supervisor ON users(supervisor)`); err != nil {
+		return fmt.Errorf("create idx_appuser_supervisor: %w", err)
 	}
 	if _, err := s.DB.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_appuser_role ON users(role)`); err != nil {
 		return fmt.Errorf("create idx_appuser_role: %w", err)

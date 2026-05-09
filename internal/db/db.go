@@ -79,6 +79,7 @@ type AppUserRecord struct {
 	Username            string
 	PasswordHash        string
 	DisplayName         string
+	Supervisor          sql.NullString
 	CPF                 sql.NullString
 	Filial              sql.NullString
 	Email               sql.NullString
@@ -496,7 +497,7 @@ func (s *Store) SearchAppUsers(ctx context.Context, query string, limit int) ([]
 	if limit <= 0 {
 		limit = 200
 	}
-	cols := `id, username, password_hash, full_name, cpf, branch, email, phone, mfa_enabled, mfa_secret, role, is_active, failed_login_attempts, locked_until, last_login_at, updated_at, created_at`
+	cols := `id, username, password_hash, full_name, supervisor, cpf, branch, email, phone, mfa_enabled, mfa_secret, role, is_active, failed_login_attempts, locked_until, last_login_at, updated_at, created_at`
 	q := strings.TrimSpace(query)
 
 	var rows *sql.Rows
@@ -515,13 +516,14 @@ func (s *Store) SearchAppUsers(ctx context.Context, query string, limit int) ([]
 			 WHERE CAST(id AS TEXT)=?
 			    OR CAST(COALESCE(username,'') AS TEXT) `+likeOp+` ?
 			    OR CAST(COALESCE(full_name,'') AS TEXT) `+likeOp+` ?
+			    OR CAST(COALESCE(supervisor,'') AS TEXT) `+likeOp+` ?
 			    OR CAST(COALESCE(cpf,'') AS TEXT) `+likeOp+` ?
 			    OR CAST(COALESCE(branch,'') AS TEXT) `+likeOp+` ?
 			    OR CAST(COALESCE(email,'') AS TEXT) `+likeOp+` ?
 			    OR CAST(COALESCE(role,'') AS TEXT) `+likeOp+` ?
 			 ORDER BY id ASC
 			 LIMIT ?`),
-			q, like, like, like, like, like, like, limit,
+			q, like, like, like, like, like, like, like, limit,
 		)
 	}
 	if err != nil {
@@ -533,7 +535,7 @@ func (s *Store) SearchAppUsers(ctx context.Context, query string, limit int) ([]
 	for rows.Next() {
 		var r AppUserRecord
 		if err := rows.Scan(
-			&r.ID, &r.Username, &r.PasswordHash, &r.DisplayName, &r.CPF, &r.Filial, &r.Email, &r.Phone, &r.MFAEnabled, &r.MFASecret, &r.Role, &r.IsActive,
+			&r.ID, &r.Username, &r.PasswordHash, &r.DisplayName, &r.Supervisor, &r.CPF, &r.Filial, &r.Email, &r.Phone, &r.MFAEnabled, &r.MFASecret, &r.Role, &r.IsActive,
 			&r.FailedLoginAttempts, &r.LockedUntil, &r.LastLoginAt, &r.UpdatedAt, &r.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -549,14 +551,14 @@ func (s *Store) GetAppUserByID(ctx context.Context, id int64) (*AppUserRecord, e
 	}
 	row := s.DB.QueryRowContext(
 		ctx,
-		s.bind(`SELECT id, username, password_hash, full_name, cpf, branch, email, phone, mfa_enabled, mfa_secret, role, is_active, failed_login_attempts, locked_until, last_login_at, updated_at, created_at
+		s.bind(`SELECT id, username, password_hash, full_name, supervisor, cpf, branch, email, phone, mfa_enabled, mfa_secret, role, is_active, failed_login_attempts, locked_until, last_login_at, updated_at, created_at
 		 FROM users
 		 WHERE id=?`),
 		id,
 	)
 	var r AppUserRecord
 	if err := row.Scan(
-		&r.ID, &r.Username, &r.PasswordHash, &r.DisplayName, &r.CPF, &r.Filial, &r.Email, &r.Phone, &r.MFAEnabled, &r.MFASecret, &r.Role, &r.IsActive,
+		&r.ID, &r.Username, &r.PasswordHash, &r.DisplayName, &r.Supervisor, &r.CPF, &r.Filial, &r.Email, &r.Phone, &r.MFAEnabled, &r.MFASecret, &r.Role, &r.IsActive,
 		&r.FailedLoginAttempts, &r.LockedUntil, &r.LastLoginAt, &r.UpdatedAt, &r.CreatedAt,
 	); err != nil {
 		return nil, err
@@ -571,7 +573,7 @@ func (s *Store) FindAppUserByUsername(ctx context.Context, username string) (*Ap
 	}
 	row := s.DB.QueryRowContext(
 		ctx,
-		s.bind(`SELECT id, username, password_hash, full_name, cpf, branch, email, phone, mfa_enabled, mfa_secret, role, is_active, failed_login_attempts, locked_until, last_login_at, updated_at, created_at
+		s.bind(`SELECT id, username, password_hash, full_name, supervisor, cpf, branch, email, phone, mfa_enabled, mfa_secret, role, is_active, failed_login_attempts, locked_until, last_login_at, updated_at, created_at
 		 FROM users
 		 WHERE username=?
 		 LIMIT 1`),
@@ -579,7 +581,7 @@ func (s *Store) FindAppUserByUsername(ctx context.Context, username string) (*Ap
 	)
 	var r AppUserRecord
 	if err := row.Scan(
-		&r.ID, &r.Username, &r.PasswordHash, &r.DisplayName, &r.CPF, &r.Filial, &r.Email, &r.Phone, &r.MFAEnabled, &r.MFASecret, &r.Role, &r.IsActive,
+		&r.ID, &r.Username, &r.PasswordHash, &r.DisplayName, &r.Supervisor, &r.CPF, &r.Filial, &r.Email, &r.Phone, &r.MFAEnabled, &r.MFASecret, &r.Role, &r.IsActive,
 		&r.FailedLoginAttempts, &r.LockedUntil, &r.LastLoginAt, &r.UpdatedAt, &r.CreatedAt,
 	); err != nil {
 		return nil, err
@@ -595,7 +597,7 @@ func (s *Store) GetAppUserByCPF(ctx context.Context, cpf string) (*AppUserRecord
 	// Busca por CPF exato ou limpando formataÃ§Ã£o comum
 	row := s.DB.QueryRowContext(
 		ctx,
-		s.bind(`SELECT id, username, password_hash, full_name, cpf, branch, email, phone, mfa_enabled, mfa_secret, role, is_active, failed_login_attempts, locked_until, last_login_at, updated_at, created_at
+		s.bind(`SELECT id, username, password_hash, full_name, supervisor, cpf, branch, email, phone, mfa_enabled, mfa_secret, role, is_active, failed_login_attempts, locked_until, last_login_at, updated_at, created_at
 		 FROM users
 		 WHERE cpf = ? OR REPLACE(REPLACE(cpf, '.', ''), '-', '') = ?
 		 LIMIT 1`),
@@ -603,7 +605,7 @@ func (s *Store) GetAppUserByCPF(ctx context.Context, cpf string) (*AppUserRecord
 	)
 	var r AppUserRecord
 	if err := row.Scan(
-		&r.ID, &r.Username, &r.PasswordHash, &r.DisplayName, &r.CPF, &r.Filial, &r.Email, &r.Phone, &r.MFAEnabled, &r.MFASecret, &r.Role, &r.IsActive,
+		&r.ID, &r.Username, &r.PasswordHash, &r.DisplayName, &r.Supervisor, &r.CPF, &r.Filial, &r.Email, &r.Phone, &r.MFAEnabled, &r.MFASecret, &r.Role, &r.IsActive,
 		&r.FailedLoginAttempts, &r.LockedUntil, &r.LastLoginAt, &r.UpdatedAt, &r.CreatedAt,
 	); err != nil {
 		return nil, err
@@ -650,6 +652,7 @@ func (s *Store) SaveAppUser(ctx context.Context, r AppUserRecord, plainPassword 
 				 SET username=?,
 				     password_hash=?,
 				     full_name=?,
+				     supervisor=?,
 				     cpf=?,
 				     branch=?,
 				     email=?,
@@ -660,7 +663,7 @@ func (s *Store) SaveAppUser(ctx context.Context, r AppUserRecord, plainPassword 
 				     is_active=?,
 				     updated_at=?
 				 WHERE id=?`),
-				username, hash, displayName, nullableTrimmed(r.CPF), nullableTrimmed(r.Filial), nullableTrimmed(r.Email), nullableTrimmed(r.Phone), r.MFAEnabled, nullableTrimmed(r.MFASecret), role, isActive, now, r.ID,
+				username, hash, displayName, nullableTrimmed(r.Supervisor), nullableTrimmed(r.CPF), nullableTrimmed(r.Filial), nullableTrimmed(r.Email), nullableTrimmed(r.Phone), r.MFAEnabled, nullableTrimmed(r.MFASecret), role, isActive, now, r.ID,
 			)
 			if err != nil {
 				return 0, err
@@ -674,6 +677,7 @@ func (s *Store) SaveAppUser(ctx context.Context, r AppUserRecord, plainPassword 
 			s.bind(`UPDATE users
 			 SET username=?,
 			     full_name=?,
+			     supervisor=?,
 			     cpf=?,
 			     branch=?,
 			     email=?,
@@ -684,7 +688,7 @@ func (s *Store) SaveAppUser(ctx context.Context, r AppUserRecord, plainPassword 
 			     is_active=?,
 			     updated_at=?
 			 WHERE id=?`),
-			username, displayName, nullableTrimmed(r.CPF), nullableTrimmed(r.Filial), nullableTrimmed(r.Email), nullableTrimmed(r.Phone), r.MFAEnabled, nullableTrimmed(r.MFASecret), role, isActive, now, r.ID,
+			username, displayName, nullableTrimmed(r.Supervisor), nullableTrimmed(r.CPF), nullableTrimmed(r.Filial), nullableTrimmed(r.Email), nullableTrimmed(r.Phone), r.MFAEnabled, nullableTrimmed(r.MFASecret), role, isActive, now, r.ID,
 		)
 		if err != nil {
 			return 0, err
@@ -703,9 +707,9 @@ func (s *Store) SaveAppUser(ctx context.Context, r AppUserRecord, plainPassword 
 	var id int64
 	err = s.DB.QueryRowContext(
 		ctx,
-		s.bind(`INSERT INTO users (username, password_hash, full_name, cpf, branch, email, phone, mfa_enabled, mfa_secret, role, is_active, failed_login_attempts, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?) RETURNING id`),
-		username, hash, displayName, nullableTrimmed(r.CPF), nullableTrimmed(r.Filial), nullableTrimmed(r.Email), nullableTrimmed(r.Phone), r.MFAEnabled, nullableTrimmed(r.MFASecret), role, isActive, now, now,
+		s.bind(`INSERT INTO users (username, password_hash, full_name, supervisor, cpf, branch, email, phone, mfa_enabled, mfa_secret, role, is_active, failed_login_attempts, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?) RETURNING id`),
+		username, hash, displayName, nullableTrimmed(r.Supervisor), nullableTrimmed(r.CPF), nullableTrimmed(r.Filial), nullableTrimmed(r.Email), nullableTrimmed(r.Phone), r.MFAEnabled, nullableTrimmed(r.MFASecret), role, isActive, now, now,
 	).Scan(&id)
 	if err != nil {
 		return 0, err
@@ -719,6 +723,42 @@ func (s *Store) DeleteAppUser(ctx context.Context, id int64) error {
 	}
 	_, err := s.DB.ExecContext(ctx, s.bind("DELETE FROM users WHERE id=?"), id)
 	return err
+}
+
+func (s *Store) ListSubordinatesBySupervisor(ctx context.Context, supervisor string, limit int) ([]AppUserRecord, error) {
+	key := strings.TrimSpace(supervisor)
+	if key == "" {
+		return []AppUserRecord{}, nil
+	}
+	if limit <= 0 {
+		limit = 2000
+	}
+	rows, err := s.DB.QueryContext(
+		ctx,
+		s.bind(`SELECT id, username, password_hash, full_name, supervisor, cpf, branch, email, phone, mfa_enabled, mfa_secret, role, is_active, failed_login_attempts, locked_until, last_login_at, updated_at, created_at
+		FROM users
+		WHERE LOWER(TRIM(COALESCE(supervisor,''))) = LOWER(TRIM(?))
+		ORDER BY id ASC
+		LIMIT ?`),
+		key, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]AppUserRecord, 0, limit)
+	for rows.Next() {
+		var r AppUserRecord
+		if err := rows.Scan(
+			&r.ID, &r.Username, &r.PasswordHash, &r.DisplayName, &r.Supervisor, &r.CPF, &r.Filial, &r.Email, &r.Phone, &r.MFAEnabled, &r.MFASecret, &r.Role, &r.IsActive,
+			&r.FailedLoginAttempts, &r.LockedUntil, &r.LastLoginAt, &r.UpdatedAt, &r.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) RegisterAppUserLoginFailure(ctx context.Context, id int64) error {
@@ -3199,7 +3239,7 @@ func (s *Store) SearchGruposAtivos(ctx context.Context, query, column, filters s
 	col := strings.ToLower(strings.TrimSpace(column))
 	filtersRaw := strings.TrimSpace(filters)
 
-const cols = `CAST(COALESCE(NULLIF(CAST(id AS TEXT), ''), '0') AS INTEGER) AS id,
+	const cols = `CAST(COALESCE(NULLIF(CAST(id AS TEXT), ''), '0') AS INTEGER) AS id,
 CAST(COALESCE(NULLIF(CAST(group_code AS TEXT), ''), '0') AS INTEGER) AS group_code,
 CAST(COALESCE(NULLIF(CAST(due_day AS TEXT), ''), '0') AS INTEGER) AS due_day,
 CAST(COALESCE(NULLIF(CAST(participants_count AS TEXT), ''), '0') AS INTEGER) AS participants_count,

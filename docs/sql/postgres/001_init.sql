@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS users (
   username VARCHAR(255) NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
   full_name VARCHAR(255) NOT NULL DEFAULT '',
+  supervisor VARCHAR(255),
   cpf VARCHAR(32),
   branch VARCHAR(64),
   email VARCHAR(255),
@@ -228,6 +229,7 @@ CREATE TABLE IF NOT EXISTS app_sessions (
 CREATE INDEX IF NOT EXISTS idx_appuser_username ON users(username);
 CREATE INDEX IF NOT EXISTS idx_appuser_cpf ON users(cpf);
 CREATE INDEX IF NOT EXISTS idx_appuser_filial ON users(branch);
+CREATE INDEX IF NOT EXISTS idx_appuser_supervisor ON users(supervisor);
 CREATE INDEX IF NOT EXISTS idx_appuser_role ON users(role);
 CREATE INDEX IF NOT EXISTS idx_gruposativos_grupo ON active_groups(group_code);
 CREATE INDEX IF NOT EXISTS idx_gruposativos_vencimento ON active_groups(due_day);

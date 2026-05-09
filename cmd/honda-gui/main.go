@@ -445,6 +445,7 @@ type solicitacaoSuccessItemPayload struct {
 	CotaRD        string `json:"cota_rd"`
 	QtdeParcelas  string `json:"installments,omitempty"`
 	Modelo        string `json:"model_name"`
+	ComRestricao  string `json:"with_restriction,omitempty"`
 	SolicitadaEm  string `json:"requested_at,omitempty"`
 	AtendidaEm    string `json:"served_at,omitempty"`
 	SLA           string `json:"sla,omitempty"`
@@ -577,6 +578,7 @@ type appUserPayload struct {
 	Search              string `json:"search,omitempty"`
 	Username            string `json:"username"`
 	DisplayName         string `json:"full_name"`
+	Supervisor          string `json:"supervisor,omitempty"`
 	CPF                 string `json:"cpf,omitempty"`
 	Filial              string `json:"branch,omitempty"`
 	Email               string `json:"email,omitempty"`
@@ -1109,6 +1111,7 @@ func appUserToPayload(r *db.AppUserRecord) appUserPayload {
 		ID:                  r.ID,
 		Username:            r.Username,
 		DisplayName:         r.DisplayName,
+		Supervisor:          strings.TrimSpace(r.Supervisor.String),
 		CPF:                 strings.TrimSpace(r.CPF.String),
 		Filial:              strings.TrimSpace(r.Filial.String),
 		Role:                r.Role,
@@ -1334,6 +1337,7 @@ func (a *app) handleAppUserSave(w http.ResponseWriter, r *http.Request) {
 		ID:          p.ID,
 		Username:    strings.TrimSpace(p.Username),
 		DisplayName: strings.TrimSpace(p.DisplayName),
+		Supervisor:  sql.NullString{String: strings.TrimSpace(p.Supervisor), Valid: strings.TrimSpace(p.Supervisor) != ""},
 		CPF:         sql.NullString{String: onlyDigitsLocal(p.CPF), Valid: strings.TrimSpace(p.CPF) != ""},
 		Filial:      sql.NullString{String: strings.TrimSpace(p.Filial), Valid: strings.TrimSpace(p.Filial) != ""},
 		Email:       sql.NullString{String: strings.TrimSpace(p.Email), Valid: strings.TrimSpace(p.Email) != ""},
@@ -1869,6 +1873,21 @@ func (a *app) handleSolicitacoesSearch(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
+	sess, ok := a.currentSession(r)
+	if ok && isSupervisorRole(sess.Role) {
+		subordinates, err := store.ListSubordinatesBySupervisor(r.Context(), sess.Username, 5000)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		filtered := make([]db.SolicitacaoRecord, 0, len(records))
+		for i := range records {
+			if matchesSupervisorSubordinate(&records[i], subordinates) {
+				filtered = append(filtered, records[i])
+			}
+		}
+		records = filtered
+	}
 	groupCounts, err := store.CountSolicitacoesByGrupoInPeriodo(r.Context(), fromDate, toDate)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
@@ -1921,6 +1940,35 @@ func onlyDigitsLocal(v string) string {
 		}
 	}
 	return b.String()
+}
+
+func normalizeRoleLocal(role string) string {
+	return strings.ToLower(strings.TrimSpace(role))
+}
+
+func isSupervisorRole(role string) bool {
+	return normalizeRoleLocal(role) == "supervisor"
+}
+
+func matchesSupervisorSubordinate(rec *db.SolicitacaoRecord, subordinates []db.AppUserRecord) bool {
+	if rec == nil || len(subordinates) == 0 {
+		return false
+	}
+	recCPF := onlyDigitsLocal(strings.TrimSpace(rec.CPF))
+	recName := strings.ToLower(strings.TrimSpace(rec.Vendedor))
+	for i := range subordinates {
+		sub := &subordinates[i]
+		subCPF := onlyDigitsLocal(strings.TrimSpace(sub.CPF.String))
+		subUsername := strings.ToLower(strings.TrimSpace(sub.Username))
+		subDisplay := strings.ToLower(strings.TrimSpace(sub.DisplayName))
+		if recCPF != "" && subCPF != "" && recCPF == subCPF {
+			return true
+		}
+		if recName != "" && (recName == subUsername || recName == subDisplay) {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *app) calculateMinhasSituacao(rec *db.SolicitacaoRecord) string {
@@ -1998,12 +2046,27 @@ func (a *app) handleMinhasSolicitacoesSearch(w http.ResponseWriter, r *http.Requ
 	sessionName := strings.ToLower(strings.TrimSpace(sess.DisplayName))
 	sessionFilial := strings.ToLower(strings.TrimSpace(sess.branch))
 	isAdmin := strings.EqualFold(strings.TrimSpace(sess.Role), "admin")
+	isSupervisor := isSupervisorRole(sess.Role)
+	subordinates := []db.AppUserRecord{}
+	if isSupervisor {
+		subordinates, err = store.ListSubordinatesBySupervisor(r.Context(), sess.Username, 5000)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+	}
 
 	out := make([]solicitacaoPayload, 0, len(records))
 	for i := range records {
 		rec := &records[i]
 
-		if !isAdmin {
+		if isSupervisor {
+			if !matchesSupervisorSubordinate(rec, subordinates) {
+				continue
+			}
+		}
+
+		if !isAdmin && !isSupervisor {
 			recCPF := onlyDigitsLocal(strings.TrimSpace(rec.CPF))
 			recName := strings.ToLower(strings.TrimSpace(rec.Vendedor))
 			recFilial := strings.ToLower(strings.TrimSpace(rec.Filial))
@@ -2061,6 +2124,18 @@ func (a *app) handleSolicitacaoGet(w http.ResponseWriter, r *http.Request) {
 		}
 		writeErr(w, http.StatusInternalServerError, err)
 		return
+	}
+	sess, ok := a.currentSession(r)
+	if ok && isSupervisorRole(sess.Role) {
+		subordinates, err := store.ListSubordinatesBySupervisor(r.Context(), sess.Username, 5000)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		if !matchesSupervisorSubordinate(rec, subordinates) {
+			writeErr(w, http.StatusForbidden, fmt.Errorf("acesso negado"))
+			return
+		}
 	}
 	writeJSON(w, http.StatusOK, solicitacaoToPayload(rec))
 }
@@ -2477,10 +2552,11 @@ func (a *app) reserveSolicitacaoByID(ctx context.Context, cfg *config.Config, st
 			}
 			return ""
 		}(),
-		Modelo:        strings.TrimSpace(modeloNome),
-		SolicitadaEm:  formatDateTimeBRNoSeconds(strings.TrimSpace(rec.DataHoraSolicitacao.String)),
-		AtendidaEm:    formatDateTimeBRNoSeconds(strings.TrimSpace(now)),
-		SLA:           formatSLADuration(strings.TrimSpace(rec.DataHoraSolicitacao.String), strings.TrimSpace(now)),
+		Modelo:       strings.TrimSpace(modeloNome),
+		ComRestricao: strings.TrimSpace(rec.ComRestricao),
+		SolicitadaEm: formatDateTimeBRNoSeconds(strings.TrimSpace(rec.DataHoraSolicitacao.String)),
+		AtendidaEm:   formatDateTimeBRNoSeconds(strings.TrimSpace(now)),
+		SLA:          formatSLADuration(strings.TrimSpace(rec.DataHoraSolicitacao.String), strings.TrimSpace(now)),
 	}
 	if successItem.Nome == "" {
 		successItem.Nome = strings.TrimSpace(rec.CPF)
@@ -3467,6 +3543,10 @@ func buildManualNotificationMessage(item solicitacaoSuccessItemPayload) string {
 	if model_name == "" {
 		model_name = "-"
 	}
+	comRestricao := strings.TrimSpace(item.ComRestricao)
+	if comRestricao == "" {
+		comRestricao = "-"
+	}
 	solicitada := strings.TrimSpace(item.SolicitadaEm)
 	atendida := strings.TrimSpace(item.AtendidaEm)
 	sla := strings.TrimSpace(item.SLA)
@@ -3485,6 +3565,7 @@ func buildManualNotificationMessage(item solicitacaoSuccessItemPayload) string {
 	lines = append(lines, "Cota-R-D: "+quota_rd)
 	lines = append(lines, "Parcelas: "+installments)
 	lines = append(lines, "Modelo: "+model_name)
+	lines = append(lines, "Restri\u00e7\u00e3o: "+comRestricao)
 	if solicitada != "" {
 		lines = append(lines, "Solicitada: "+solicitada)
 	}
