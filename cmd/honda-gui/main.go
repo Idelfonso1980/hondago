@@ -1972,6 +1972,100 @@ func matchesSupervisorSubordinate(rec *db.SolicitacaoRecord, subordinates []db.A
 	return false
 }
 
+func mergeUniqueSubordinates(items ...[]db.AppUserRecord) []db.AppUserRecord {
+	out := make([]db.AppUserRecord, 0)
+	seen := make(map[int64]struct{})
+	for _, list := range items {
+		for i := range list {
+			id := list[i].ID
+			if id <= 0 {
+				continue
+			}
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			out = append(out, list[i])
+		}
+	}
+	return out
+}
+
+func buildSupervisorRequestsScope(ctx context.Context, store *db.Store, sess *appSession) (string, []any, error) {
+	if store == nil || sess == nil || !isSupervisorRole(sess.Role) {
+		return "", nil, nil
+	}
+	byUser, err := store.ListSubordinatesBySupervisor(ctx, sess.Username, 5000)
+	if err != nil {
+		return "", nil, err
+	}
+	byName, err := store.ListSubordinatesBySupervisor(ctx, sess.DisplayName, 5000)
+	if err != nil {
+		return "", nil, err
+	}
+	subordinates := mergeUniqueSubordinates(byUser, byName)
+	if len(subordinates) == 0 {
+		return "1=0", nil, nil
+	}
+
+	sellerKeys := make([]string, 0, len(subordinates)*2)
+	cpfKeys := make([]string, 0, len(subordinates))
+	sellerSeen := make(map[string]struct{})
+	cpfSeen := make(map[string]struct{})
+	for i := range subordinates {
+		sub := &subordinates[i]
+		u := strings.ToLower(strings.TrimSpace(sub.Username))
+		if u != "" {
+			if _, ok := sellerSeen[u]; !ok {
+				sellerSeen[u] = struct{}{}
+				sellerKeys = append(sellerKeys, u)
+			}
+		}
+		d := strings.ToLower(strings.TrimSpace(sub.DisplayName))
+		if d != "" {
+			if _, ok := sellerSeen[d]; !ok {
+				sellerSeen[d] = struct{}{}
+				sellerKeys = append(sellerKeys, d)
+			}
+		}
+		cpf := onlyDigitsLocal(strings.TrimSpace(sub.CPF.String))
+		if cpf != "" {
+			if _, ok := cpfSeen[cpf]; !ok {
+				cpfSeen[cpf] = struct{}{}
+				cpfKeys = append(cpfKeys, cpf)
+			}
+		}
+	}
+	if len(sellerKeys) == 0 && len(cpfKeys) == 0 {
+		return "1=0", nil, nil
+	}
+
+	clauses := make([]string, 0, 2)
+	args := make([]any, 0, len(sellerKeys)+len(cpfKeys)+1)
+	if len(sellerKeys) > 0 {
+		ph := strings.TrimRight(strings.Repeat("?,", len(sellerKeys)), ",")
+		clauses = append(clauses, "LOWER(TRIM(COALESCE(seller_name,''))) IN ("+ph+")")
+		for _, k := range sellerKeys {
+			args = append(args, k)
+		}
+	}
+	if len(cpfKeys) > 0 {
+		ph := strings.TrimRight(strings.Repeat("?,", len(cpfKeys)), ",")
+		clauses = append(clauses, "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(cpf,''),'.',''),'-',''),'/',''),'(',''),')','') IN ("+ph+")")
+		for _, k := range cpfKeys {
+			args = append(args, k)
+		}
+	}
+
+	scope := "(" + strings.Join(clauses, " OR ") + ")"
+	branch := strings.TrimSpace(sess.branch)
+	if branch != "" {
+		scope = "(" + scope + " AND COALESCE(TRIM(branch),'') = ?)"
+		args = append(args, branch)
+	}
+	return scope, args, nil
+}
+
 func (a *app) calculateMinhasSituacao(rec *db.SolicitacaoRecord) string {
 	hasAtendimento := rec.DataHoraAtendimento.Valid && strings.TrimSpace(rec.DataHoraAtendimento.String) != ""
 	hasCotaRD := strings.TrimSpace(rec.CotaRD) != ""
@@ -2689,6 +2783,19 @@ func (a *app) handleDashboardSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	filialSel := strings.TrimSpace(r.URL.Query().Get("branch"))
+	sess, _ := a.currentSession(r)
+	supervisorScope := ""
+	supervisorArgs := make([]any, 0)
+	if sess != nil && isSupervisorRole(sess.Role) {
+		if strings.TrimSpace(sess.branch) != "" {
+			filialSel = strings.TrimSpace(sess.branch)
+		}
+		supervisorScope, supervisorArgs, err = buildSupervisorRequestsScope(r.Context(), store, sess)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+	}
 
 	atendidaCond := `( (status IS NOT NULL AND LOWER(TRIM(status)) LIKE 'atendid%') OR
 		(served_at IS NOT NULL AND TRIM(CAST(served_at AS TEXT)) <> '') OR
@@ -2706,6 +2813,10 @@ func (a *app) handleDashboardSummary(w http.ResponseWriter, r *http.Request) {
 	if filialSel != "" {
 		dateConds = append(dateConds, `COALESCE(TRIM(branch),'') = ?`)
 		whereArgs = append(whereArgs, filialSel)
+	}
+	if supervisorScope != "" {
+		dateConds = append(dateConds, supervisorScope)
+		whereArgs = append(whereArgs, supervisorArgs...)
 	}
 	whereClause := strings.Join(dateConds, " AND ")
 
@@ -2766,6 +2877,10 @@ WHERE `+whereClause+`
 	if filialSel != "" {
 		backlogConds = append(backlogConds, `COALESCE(TRIM(branch),'') = ?`)
 		backlogArgs = append(backlogArgs, filialSel)
+	}
+	if supervisorScope != "" {
+		backlogConds = append(backlogConds, supervisorScope)
+		backlogArgs = append(backlogArgs, supervisorArgs...)
 	}
 	backlogAtual, err := queryInt64Ctx(r.Context(), store, `SELECT COUNT(1) FROM requests WHERE `+strings.Join(backlogConds, " AND "), backlogArgs...)
 	if err != nil {
@@ -2834,10 +2949,15 @@ SELECT COALESCE(NULLIF(TRIM(branch), ''), '(Sem filial)') AS nome,
        COUNT(1) AS total,
        0 AS atendidas
 FROM requests
-WHERE NOT (`+atendidaCond+`)
+WHERE NOT (`+atendidaCond+`)`+func() string {
+		if supervisorScope != "" {
+			return "\n  AND " + supervisorScope
+		}
+		return ""
+	}()+`
 GROUP BY nome
 ORDER BY total DESC
-LIMIT 10`)
+LIMIT 10`, supervisorArgs...)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -2863,6 +2983,12 @@ LIMIT 10`)
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
+	if sess != nil && isSupervisorRole(sess.Role) {
+		b := strings.TrimSpace(sess.branch)
+		if b != "" {
+			filiaisFiltro = []string{b}
+		}
+	}
 
 	var taxa float64
 	if total > 0 {
@@ -2883,6 +3009,10 @@ LIMIT 10`)
 	if filialSel != "" {
 		prevConds = append(prevConds, `COALESCE(TRIM(branch),'') = ?`)
 		prevArgs = append(prevArgs, filialSel)
+	}
+	if supervisorScope != "" {
+		prevConds = append(prevConds, supervisorScope)
+		prevArgs = append(prevArgs, supervisorArgs...)
 	}
 	prevWhere := strings.Join(prevConds, " AND ")
 	prevTotal, _ := queryInt64Ctx(r.Context(), store, `SELECT COUNT(1) FROM requests WHERE `+prevWhere, prevArgs...)
@@ -2967,6 +3097,19 @@ func (a *app) handleDashboardDetails(w http.ResponseWriter, r *http.Request) {
 	kind := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("kind")))
 	value := strings.TrimSpace(r.URL.Query().Get("value"))
 	filialSel := strings.TrimSpace(r.URL.Query().Get("branch"))
+	sess, _ := a.currentSession(r)
+	supervisorScope := ""
+	supervisorArgs := make([]any, 0)
+	if sess != nil && isSupervisorRole(sess.Role) {
+		if strings.TrimSpace(sess.branch) != "" {
+			filialSel = strings.TrimSpace(sess.branch)
+		}
+		supervisorScope, supervisorArgs, err = buildSupervisorRequestsScope(r.Context(), store, sess)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+	}
 
 	atendidaCond := `( (status IS NOT NULL AND LOWER(TRIM(status)) LIKE 'atendid%') OR
 		(served_at IS NOT NULL AND TRIM(CAST(served_at AS TEXT)) <> '') OR
@@ -2982,6 +3125,10 @@ func (a *app) handleDashboardDetails(w http.ResponseWriter, r *http.Request) {
 	if filialSel != "" {
 		conds = append(conds, `COALESCE(TRIM(branch),'') = ?`)
 		args = append(args, filialSel)
+	}
+	if supervisorScope != "" {
+		conds = append(conds, supervisorScope)
+		args = append(args, supervisorArgs...)
 	}
 	switch kind {
 	case "total":

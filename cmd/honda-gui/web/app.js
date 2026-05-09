@@ -402,8 +402,8 @@
     function applyRolePermissions(){
       const appUsersTab = document.querySelector("[data-config-tab='appusers']");
       const dbTab = document.querySelector("[data-config-tab='database']");
-      if (appUsersTab) appUsersTab.style.display = canManageSystemUsers() ? "" : "none";
-      if (dbTab) dbTab.style.display = canManageSystemUsers() ? "" : "none";
+      if (appUsersTab) appUsersTab.style.display = canAccessConfigTab("appusers") ? "" : "none";
+      if (dbTab) dbTab.style.display = canAccessConfigTab("database") ? "" : "none";
       const navDashboard = document.getElementById("nav-dashboard");
       const navReservas = document.getElementById("nav-reservas");
       const navMonitor = document.getElementById("nav-monitor");
@@ -416,11 +416,11 @@
         if (navConfig) navConfig.style.display = "none";
         if (navReservas) navReservas.style.display = "";
       } else {
-        if (navDashboard) navDashboard.style.display = "";
-        if (navReservas) navReservas.style.display = "";
-        if (navMonitor) navMonitor.style.display = hasPermission("logs:read") ? "" : "none";
-        if (navLogs) navLogs.style.display = hasPermission("logs:read") ? "" : "none";
-        if (navConfig) navConfig.style.display = "";
+        if (navDashboard) navDashboard.style.display = canAccessSection("dashboard") ? "" : "none";
+        if (navReservas) navReservas.style.display = canAccessSection("reservas") ? "" : "none";
+        if (navMonitor) navMonitor.style.display = canAccessSection("monitor") ? "" : "none";
+        if (navLogs) navLogs.style.display = canAccessSection("logs") ? "" : "none";
+        if (navConfig) navConfig.style.display = canAccessSection("config") ? "" : "none";
       }
       applyRBAC();
       if (!canManageSystemUsers()) {
@@ -472,6 +472,9 @@
       }
       if (isVendedorRole() && page !== "reservas") {
         page = "reservas";
+      }
+      if (!canAccessSection(page)) {
+        page = canAccessSection("reservas") ? "reservas" : "dashboard";
       }
       const pages = {
         dashboard: document.getElementById("page-dashboard"),
@@ -948,6 +951,10 @@
       if (isVendedorRole() && section !== "solicitar" && section !== "minhas" && section !== "home") {
         section = "home";
       }
+      if (!canAccessReserveTab(section)) {
+        const fallback = ["home", "solicitacoes", "minhas", "solicitar", "reserved", "mensagens", "config"].find((k) => canAccessReserveTab(k));
+        section = fallback || "solicitacoes";
+      }
       if (!canAccessReserveHome() && section === "home") {
         section = "solicitacoes";
       }
@@ -965,7 +972,7 @@
       const tabs = document.querySelectorAll("[data-reserve-tab]");
       for (const tab of tabs) {
         const tabName = tab.getAttribute("data-reserve-tab");
-        if (isVendedorRole() && tabName !== "solicitar" && tabName !== "minhas" && tabName !== "home") {
+        if ((isVendedorRole() && tabName !== "solicitar" && tabName !== "minhas" && tabName !== "home") || !canAccessReserveTab(tabName)) {
           tab.style.display = "none";
         } else {
           tab.style.display = "";
@@ -1037,7 +1044,7 @@
     }
 
     function openConfigSection(section){
-      if ((section === "appusers" || section === "database" || section === "rbac") && !canManageSystemUsers()) {
+      if (!canAccessConfigTab(section)) {
         setStatus("Acesso negado: perfil sem permissÃ£o");
         section = "users";
       }
@@ -4372,6 +4379,10 @@
     }
 
     async function openMonitoringModal(){
+      if (!canAccessSection("monitor")) {
+        setStatus("Acesso negado: perfil sem permissÃ£o");
+        return;
+      }
       document.getElementById("monitorModal").classList.remove("hidden");
       await refreshMonitoring();
       if (!monitorPollTimer) {
@@ -4455,6 +4466,10 @@
     }
 
     async function openDiagnosticsModal(){
+      if (!canAccessSection("logs")) {
+        setStatus("Acesso negado: perfil sem permissÃ£o");
+        return;
+      }
       if (!hasPermission("logs:read")) {
         setStatus("Acesso negado: sem permissÃ£o para ver logs");
         return;
@@ -4766,15 +4781,22 @@
     applySidebarState();
     initAllMasks();
     (async () => {
-      try {
-        await fetch("/api/app/logout", {method: "POST"});
-      } catch (err) {}
+      showLoginOverlay(true);
+      const hasSession = await ensureAppSession();
+      if (hasSession) {
+        showLoginOverlay(false);
+        if (!appBootstrapped) {
+          appBootstrapped = true;
+          openPage(isVendedorRole() ? "reservas" : "dashboard");
+          await loadConfig();
+        }
+        return;
+      }
       isAuthenticated = false;
       currentUserRole = "";
       window.currentUserRole = "";
       window.userPermissions = [];
       applyRolePermissions();
-      showLoginOverlay(true);
       setStatus("Aguardando login");
       document.getElementById("login_username").focus();
     })();
@@ -4790,9 +4812,58 @@ document.addEventListener("mouseover", function(e) {
 window.userPermissions = [];
 window.currentUserRole = "";
 
-function hasPermission(perm) {
+    function hasPermission(perm) {
     if (window.currentUserRole && window.currentUserRole.toLowerCase() === "admin") return true;
     return window.userPermissions.includes(perm);
+}
+
+function hasAnyPermission(perms){
+    if (!Array.isArray(perms) || !perms.length) return false;
+    return perms.some((p) => hasPermission(p));
+}
+
+function canAccessSection(section){
+    switch (String(section || "").toLowerCase()) {
+      case "dashboard":
+        return hasAnyPermission(["dashboard:read", "nav:dashboard"]);
+      case "reservas":
+        return hasAnyPermission(["solicitacoes:read", "nav:reservas"]);
+      case "monitor":
+        return hasAnyPermission(["nav:monitor", "monitor:read", "logs:read"]);
+      case "logs":
+        return hasAnyPermission(["nav:logs", "logs:read"]);
+      case "config":
+        return hasAnyPermission(["nav:config", "configs:manage", "users:read", "roles:manage"]);
+      default:
+        return false;
+    }
+}
+
+function canAccessReserveTab(tabName){
+    const tab = String(tabName || "").toLowerCase();
+    if (tab === "solicitacoes") return hasAnyPermission(["solicitacoes:read", "reservas:solicitacoes"]);
+    if (tab === "minhas") return hasAnyPermission(["solicitacoes:read", "reservas:minhas"]);
+    if (tab === "solicitar") return hasAnyPermission(["solicitacoes:create", "reservas:solicitar"]);
+    if (tab === "reserved") return hasAnyPermission(["cotas:reserve", "reservas:reservadas"]);
+    if (tab === "mensagens") return hasAnyPermission(["reservas:mensagens", "solicitacoes:read"]);
+    if (tab === "config") return hasAnyPermission(["reservas:config", "configs:manage"]);
+    if (tab === "home") return hasAnyPermission(["reservas:home", "dashboard:read", "solicitacoes:read"]);
+    return false;
+}
+
+function canAccessConfigTab(tabName){
+    const tab = String(tabName || "").toLowerCase();
+    if (tab === "users") return hasAnyPermission(["users:read", "config:users"]);
+    if (tab === "appusers") return hasAnyPermission(["users:read", "config:appusers"]);
+    if (tab === "rbac") return hasAnyPermission(["roles:manage", "config:rbac"]);
+    if (tab === "audit") return hasAnyPermission(["audit:view", "config:audit"]);
+    if (tab === "database") return hasAnyPermission(["configs:manage", "config:database"]);
+    if (tab === "idsgrupos") return hasAnyPermission(["config:idsgrupos", "configs:manage"]);
+    if (tab === "active_groups") return hasAnyPermission(["config:active_groups", "configs:manage"]);
+    if (tab === "assemblies") return hasAnyPermission(["config:assemblies", "configs:manage"]);
+    if (tab === "models") return hasAnyPermission(["config:models", "configs:manage"]);
+    if (tab === "produtos") return hasAnyPermission(["config:produtos", "configs:manage"]);
+    return false;
 }
 
 function applyRBAC() {
@@ -4852,7 +4923,20 @@ function renderRBACMatrix() {
 }
 
 const permissionDescriptions = {
+    "nav:dashboard": "Acesso ao menu Dashboard",
+    "nav:reservas": "Acesso ao menu Painel de Reservas",
+    "nav:monitor": "Acesso ao menu Monitoramento",
+    "nav:logs": "Acesso ao menu Logs e Diagnóstico",
+    "nav:config": "Acesso ao menu Configuração",
     "dashboard:read": "Acesso Ã  tela inicial e mÃ©tricas do Dashboard",
+    "monitor:read": "Visualizar monitoramento operacional",
+    "reservas:home": "Acesso à aba Home do painel de reservas",
+    "reservas:solicitacoes": "Acesso à aba Solicitações",
+    "reservas:minhas": "Acesso à aba Minhas Reservas",
+    "reservas:solicitar": "Acesso à aba Solicitar Cota",
+    "reservas:reservadas": "Acesso à aba Cotas Reservadas",
+    "reservas:mensagens": "Acesso à aba Mensagens",
+    "reservas:config": "Acesso à aba Configuração de Reserva",
     "solicitacoes:read": "Visualizar a lista de solicitaÃ§Ãµes",
     "solicitacoes:create": "Criar novas solicitaÃ§Ãµes",
     "solicitacoes:edit": "Editar solicitaÃ§Ãµes existentes",
@@ -4868,7 +4952,17 @@ const permissionDescriptions = {
     "configs:manage": "Acessar configuraÃ§Ãµes gerais e de banco",
     "logs:read": "Visualizar logs do sistema",
     "logs:delete": "Limpar ou excluir logs do sistema",
-    "audit:view": "Visualizar trilha de auditoria e histÃ³rico de aÃ§Ãµes"
+    "audit:view": "Visualizar trilha de auditoria e histÃ³rico de aÃ§Ãµes",
+    "config:users": "Acesso à configuração de usuários de autenticação",
+    "config:appusers": "Acesso à configuração de usuários do sistema",
+    "config:rbac": "Acesso à matriz de permissões",
+    "config:audit": "Acesso à auditoria",
+    "config:database": "Acesso à configuração de banco",
+    "config:idsgrupos": "Acesso à configuração de IDs de grupos",
+    "config:active_groups": "Acesso à configuração de grupos ativos",
+    "config:assemblies": "Acesso à configuração de assembleias",
+    "config:models": "Acesso à configuração de modelos",
+    "config:produtos": "Acesso à configuração de produtos"
 };
 
 function openRBACEditModal(roleIndex) {
