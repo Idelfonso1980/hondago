@@ -1537,8 +1537,9 @@
           <div class="field"><label>E-mail</label><input id="appuser_email" placeholder="Ex: contato@empresa.com" /></div>
           <div class="field"><label>CPF</label><input id="appuser_cpf" placeholder="Apenas n&uacute;meros" /></div>
           <div class="field"><label>Filial</label><input id="appuser_filial" placeholder="Ex: Matriz" /></div>
-          <div class="field"><label>Perfil de Acesso</label><select id="appuser_role"><option value="admin">admin</option><option value="operador">operador</option><option value="vendedor">vendedor</option><option value="supervisor">supervisor</option><option value="viewer">viewer</option></select></div>
-          <div class="field"><label>Supervisor</label><input id="appuser_supervisor" placeholder="Ex: Nome/Login do supervisor" /></div>
+          <div class="field"><label>Perfil de Acesso</label><select id="appuser_role"><option value="admin">admin</option><option value="operador">operador</option><option value="vendedor">vendedor</option><option value="supervisor">supervisor</option><option value="gerente">gerente</option><option value="viewer">viewer</option></select></div>
+          <div class="field"><label>Supervisor</label><input id="appuser_supervisor" placeholder="Ex: username do supervisor" /></div>
+          <div class="field"><label>Gerente</label><input id="appuser_manager" placeholder="Ex: username do gerente" /></div>
           <div class="field"><label>Status (Ativo)</label><select id="appuser_is_active"><option value="1">Sim</option><option value="0">N&atilde;o</option></select></div>
           <div class="field field-alert"><label>Definir Nova Senha</label><input id="appuser_password" type="password" placeholder="SÃƒÂ³ preencha para alterar/criar" /></div>
           <div class="field"><label>Tentativas Falhas</label><input id="appuser_failed_login_attempts" class="readonly" readonly /></div>
@@ -1695,6 +1696,8 @@
 
 </body>
 </html>
+
+
 
 
 

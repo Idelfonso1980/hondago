@@ -4,7 +4,7 @@
     const solicitacaoFields = ["sol_id","sol_data_hora_solicitacao","sol_filial","sol_vendedor","sol_cpf","sol_modelo","sol_plano","sol_qtde_parcelas","sol_perc_lance","sol_com_restricao","sol_grupo","sol_observacao","sol_id_cota","sol_grupo_atendido","sol_cota_r_d","sol_data_hora_atendimento","sol_situacao","sol_lance_contemplacao"];
     const idsgFields = ["idsg_id","idsg_id_grupo","idsg_produto","idsg_vencimento","idsg_prazo","idsg_tipo","idsg_grupo","idsg_cota","idsg_r","idsg_d","idsg_parcelas_calc","idsg_booked","idsg_created_at","idsg_participantes","idsg_failed"];
     const gruposAtivosFields = ["ga_id","ga_grupo","ga_vencimento","ga_qtd_participantes","ga_data_assembleia_inaugural","ga_plano","ga_prazo","ga_tipo_grupo","ga_modelos","ga_status","ga_created_at","ga_updated_at"];
-    const appUserFields = ["appuser_id","appuser_username","appuser_display_name","appuser_phone","appuser_cpf","appuser_filial","appuser_email","appuser_role","appuser_supervisor","appuser_is_active","appuser_password","appuser_failed_login_attempts","appuser_locked_until","appuser_last_login_at","appuser_updated_at","appuser_created_at"];
+    const appUserFields = ["appuser_id","appuser_username","appuser_display_name","appuser_phone","appuser_cpf","appuser_filial","appuser_email","appuser_role","appuser_supervisor","appuser_manager","appuser_is_active","appuser_password","appuser_failed_login_attempts","appuser_locked_until","appuser_last_login_at","appuser_updated_at","appuser_created_at"];
     const solicitarFields = ["request_filial","request_data_hora_solicitacao","request_vendedor","request_cpf","request_modelo","request_plano","request_qtde_parcelas","request_perc_lance","request_com_restricao","request_grupo","request_observacao"];
     const modeloFields = ["modelo_id","modelo_idmodelo","modelo_nome","modelo_status"];
     const produtoFields = ["produto_id","produto_idproduto","produto_nome","produto_status"];
@@ -372,6 +372,7 @@
     function normalizeRoleValue(role){
       const v = String(role || "").trim().toLowerCase();
       if (v === "seller_name" || v === "vendedor") return "vendedor";
+      if (v === "manager" || v === "gerente") return "gerente";
       if (v === "operator") return "operador";
       return v || "operador";
     }
@@ -1197,6 +1198,7 @@
       document.getElementById("appuser_email").value = data.email || "";
       document.getElementById("appuser_role").value = normalizeRoleValue(data.role || "operador");
       document.getElementById("appuser_supervisor").value = data.supervisor || "";
+      document.getElementById("appuser_manager").value = data.manager || "";
       document.getElementById("appuser_is_active").value = data.is_active ? "1" : "0";
       document.getElementById("appuser_password").value = "";
       document.getElementById("appuser_failed_login_attempts").value = data.failed_login_attempts || 0;
@@ -1217,6 +1219,7 @@
         phone: (document.getElementById("appuser_phone").value || "").replace(/\D/g, ""),
         role: normalizeRoleValue(document.getElementById("appuser_role").value || "operador"),
         supervisor: document.getElementById("appuser_supervisor").value || "",
+        manager: document.getElementById("appuser_manager").value || "",
         is_active: document.getElementById("appuser_is_active").value === "1",
         password: document.getElementById("appuser_password").value || ""
       };

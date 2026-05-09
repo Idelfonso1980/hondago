@@ -5,7 +5,8 @@ INSERT INTO roles (id, name, description) VALUES
 (2, 'operador', 'Operador de Vendas e Reservas'),
 (3, 'vendedor', 'Vendedor'),
 (4, 'viewer', 'Somente Leitura'),
-(5, 'supervisor', 'Supervisor de Equipe')
+(5, 'supervisor', 'Supervisor de Equipe'),
+(6, 'gerente', 'Gerente de Filial')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO role_permissions (role_id, permission_key) VALUES
@@ -40,6 +41,12 @@ INSERT INTO role_permissions (role_id, permission_key) VALUES
 (5,'dashboard:read'), (5,'solicitacoes:read'),
 (5,'nav:dashboard'), (5,'nav:reservas'),
 (5,'reservas:home'), (5,'reservas:solicitacoes'), (5,'reservas:minhas')
+ON CONFLICT DO NOTHING;
+
+INSERT INTO role_permissions (role_id, permission_key) VALUES
+(6,'dashboard:read'), (6,'solicitacoes:read'),
+(6,'nav:dashboard'), (6,'nav:reservas'),
+(6,'reservas:home'), (6,'reservas:solicitacoes'), (6,'reservas:minhas')
 ON CONFLICT DO NOTHING;
 
 COMMIT;
