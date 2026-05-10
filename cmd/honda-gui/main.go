@@ -2272,7 +2272,7 @@ func (a *app) handleMinhasSolicitacoesSearch(w http.ResponseWriter, r *http.Requ
 	sessionCPF := onlyDigitsLocal(strings.TrimSpace(sess.CPF))
 	sessionName := strings.ToLower(strings.TrimSpace(sess.DisplayName))
 	sessionFilial := strings.ToLower(strings.TrimSpace(sess.branch))
-	isAdmin := strings.EqualFold(strings.TrimSpace(sess.Role), "admin")
+	isAdmin := strings.EqualFold(strings.TrimSpace(sess.Role), "admin") || isSuperUsuarioRole(sess.Role)
 	isSupervisor := isSupervisorRole(sess.Role)
 	isGerente := isGerenteRole(sess.Role)
 	subordinates := []db.AppUserRecord{}
