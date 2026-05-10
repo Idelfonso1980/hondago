@@ -2932,13 +2932,11 @@ WHERE `+whereClause+`
   AND requested_at IS NOT NULL AND TRIM(CAST(requested_at AS TEXT)) <> ''
   AND served_at IS NOT NULL AND TRIM(CAST(served_at AS TEXT)) <> ''
   AND `+slaNonNegativeCond(store)+``), whereArgs...).Scan(&slaAvgMin); err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
+		slaAvgMin = sql.NullFloat64{}
 	}
 	slaSamples, err := querySLAMinutes(r.Context(), store, whereClause, whereArgs...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
+		slaSamples = []float64{}
 	}
 	slaMediana, slaP95 := percentilesFromSamples(slaSamples)
 
@@ -2947,8 +2945,7 @@ WHERE `+whereClause+`
 SELECT AVG(bid_percent) FROM requests
 WHERE `+whereClause+`
   AND bid_percent IS NOT NULL`), whereArgs...).Scan(&lanceAvg); err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
+		lanceAvg = sql.NullFloat64{}
 	}
 	errosReserva, err := queryInt64Ctx(r.Context(), store, `SELECT COUNT(1) FROM requests WHERE `+whereClause+` AND `+erroCond, whereArgs...)
 	if err != nil {
@@ -2986,8 +2983,7 @@ GROUP BY nome
 ORDER BY total DESC
 LIMIT 10`, whereArgs...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
+		filiais = []dashboardRankItem{}
 	}
 
 	vendedoresTop, err := queryDashboardRank(r.Context(), store, `
@@ -3000,8 +2996,7 @@ GROUP BY nome
 ORDER BY total DESC
 LIMIT 10`, whereArgs...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
+		vendedoresTop = []dashboardRankItem{}
 	}
 
 	vendedoresTaxa, err := queryDashboardRank(r.Context(), store, `
@@ -3015,8 +3010,7 @@ HAVING COUNT(1) >= 1
 ORDER BY (SUM(CASE WHEN `+atendidaCond+` THEN 1 ELSE 0 END) * 1.0 / COUNT(1)) DESC, COUNT(1) DESC
 LIMIT 10`, whereArgs...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
+		vendedoresTaxa = []dashboardRankItem{}
 	}
 
 	gruposAtendidos, err := queryDashboardRank(r.Context(), store, `
@@ -3029,8 +3023,7 @@ GROUP BY nome
 ORDER BY total DESC
 LIMIT 10`, whereArgs...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
+		gruposAtendidos = []dashboardRankItem{}
 	}
 	filiaisBacklog, err := queryDashboardRank(r.Context(), store, `
 SELECT COALESCE(NULLIF(TRIM(branch), ''), '(Sem filial)') AS nome,
@@ -3043,29 +3036,24 @@ GROUP BY nome
 ORDER BY total DESC
 LIMIT 10`, whereArgs...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
+		filiaisBacklog = []dashboardRankItem{}
 	}
 
 	serie, err := queryDashboardSerie(r.Context(), store, atendidaCond, whereClause, whereArgs...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
+		serie = []dashboardSerieItem{}
 	}
 	serieHora, err := queryDashboardSerieHora(r.Context(), store, atendidaCond, whereClause, baseHourExpr, whereArgs...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
+		serieHora = []dashboardHourItem{}
 	}
 	ultimaAtendidaDelta, ultimaAtendidaEm, err := queryTempoDesdeUltimaAtendida(r.Context(), store.DB, filialSel, supervisorScope, supervisorArgs)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
+		ultimaAtendidaDelta, ultimaAtendidaEm = 0, ""
 	}
 	filiaisFiltro, err := queryDistinctFiliais(r.Context(), store.DB)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
+		filiaisFiltro = []string{}
 	}
 	if sess != nil && isSupervisorRole(sess.Role) {
 		b := strings.TrimSpace(sess.branch)

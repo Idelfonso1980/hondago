@@ -921,58 +921,29 @@ func (s *Store) ensureRolesSeed(ctx context.Context) error {
 		}
 	}
 
-	// Operador permissions (restricted)
-	operadorPerms := []string{
-		"dashboard:read", "solicitacoes:read", "solicitacoes:create", "solicitacoes:edit", "cotas:reserve",
-		"nav:dashboard", "nav:reservas",
-		"reservas:solicitacoes", "reservas:minhas", "reservas:solicitar", "reservas:reservadas",
-	}
-	for _, p := range operadorPerms {
-		if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO role_permissions (role_id, permission_key) VALUES (2, ?)", p); err != nil {
-			return err
-		}
-	}
-
 	vendedorPerms := []string{
 		"dashboard:read", "solicitacoes:read", "solicitacoes:create", "solicitacoes:edit", "cotas:reserve",
 		"nav:reservas",
 		"reservas:home", "reservas:minhas", "reservas:solicitar",
 	}
-	for _, p := range vendedorPerms {
-		if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO role_permissions (role_id, permission_key) VALUES (3, ?)", p); err != nil {
+	seedRolePermsIfEmpty := func(roleID int64, perms []string) error {
+		var count int64
+		if err := tx.QueryRowContext(ctx, "SELECT COUNT(1) FROM role_permissions WHERE role_id = ?", roleID).Scan(&count); err != nil {
 			return err
 		}
-	}
-
-	viewerPerms := []string{
-		"dashboard:read", "solicitacoes:read",
-		"nav:dashboard", "nav:reservas",
-		"reservas:solicitacoes", "reservas:minhas",
-	}
-	for _, p := range viewerPerms {
-		if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO role_permissions (role_id, permission_key) VALUES (4, ?)", p); err != nil {
-			return err
+		if count > 0 {
+			return nil
 		}
-	}
-
-	supervisorPerms := []string{
-		"dashboard:read", "solicitacoes:read",
-		"nav:dashboard", "nav:reservas",
-		"reservas:home", "reservas:solicitacoes", "reservas:minhas",
-	}
-	for _, p := range supervisorPerms {
-		if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO role_permissions (role_id, permission_key) VALUES (5, ?)", p); err != nil {
-			return err
+		for _, p := range perms {
+			if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO role_permissions (role_id, permission_key) VALUES (?, ?)", roleID, p); err != nil {
+				return err
+			}
 		}
+		return nil
 	}
-
-	gerentePerms := []string{
-		"dashboard:read", "solicitacoes:read",
-		"nav:dashboard", "nav:reservas",
-		"reservas:home", "reservas:solicitacoes", "reservas:minhas",
-	}
-	for _, p := range gerentePerms {
-		if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO role_permissions (role_id, permission_key) VALUES (6, ?)", p); err != nil {
+	// Em instalação nova: todos não-admin iniciam com mesmo pacote do vendedor.
+	for _, roleID := range []int64{2, 3, 4, 5, 6} {
+		if err := seedRolePermsIfEmpty(roleID, vendedorPerms); err != nil {
 			return err
 		}
 	}
