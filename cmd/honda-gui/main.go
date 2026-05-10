@@ -1956,6 +1956,19 @@ func onlyDigitsLocal(v string) string {
 	return b.String()
 }
 
+func foldTextLocal(v string) string {
+	s := strings.ToLower(strings.TrimSpace(v))
+	repl := strings.NewReplacer(
+		"á", "a", "à", "a", "â", "a", "ã", "a", "ä", "a",
+		"é", "e", "è", "e", "ê", "e", "ë", "e",
+		"í", "i", "ì", "i", "î", "i", "ï", "i",
+		"ó", "o", "ò", "o", "ô", "o", "õ", "o", "ö", "o",
+		"ú", "u", "ù", "u", "û", "u", "ü", "u",
+		"ç", "c",
+	)
+	return repl.Replace(s)
+}
+
 func normalizeRoleLocal(role string) string {
 	return strings.ToLower(strings.TrimSpace(role))
 }
@@ -2021,6 +2034,34 @@ func buildSupervisorRequestsScope(ctx context.Context, store *db.Store, sess *ap
 		return "", nil, err
 	}
 	subordinates := mergeUniqueSubordinates(byUser, byName)
+	if len(subordinates) == 0 {
+		allUsers, aerr := store.SearchAppUsers(ctx, "", 5000)
+		if aerr == nil {
+			keys := map[string]struct{}{}
+			if k := foldTextLocal(sess.Username); k != "" {
+				keys[k] = struct{}{}
+			}
+			if k := foldTextLocal(sess.DisplayName); k != "" {
+				keys[k] = struct{}{}
+			}
+			branchKey := strings.ToLower(strings.TrimSpace(sess.branch))
+			fuzzy := make([]db.AppUserRecord, 0)
+			for i := range allUsers {
+				sup := foldTextLocal(allUsers[i].Supervisor.String)
+				if sup == "" {
+					continue
+				}
+				if _, ok := keys[sup]; !ok {
+					continue
+				}
+				if branchKey != "" && strings.ToLower(strings.TrimSpace(allUsers[i].Filial.String)) != branchKey {
+					continue
+				}
+				fuzzy = append(fuzzy, allUsers[i])
+			}
+			subordinates = mergeUniqueSubordinates(subordinates, fuzzy)
+		}
+	}
 	if len(subordinates) == 0 {
 		branch := strings.TrimSpace(sess.branch)
 		if branch != "" {

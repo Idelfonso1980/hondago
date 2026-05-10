@@ -904,17 +904,23 @@
 
     async function loadDashboard(){
       setStatus("Carregando dashboard");
-      const qs = dashboardQueryString();
-      const [res, logsRes] = await Promise.all([
-        fetch("/api/dashboard/summary?" + qs),
-        fetch("/api/logs"),
-      ]);
-      const data = await res.json();
-      const logsData = await logsRes.json();
-      if (!res.ok || data.ok === false) {
-        setStatus(data.message || "Erro ao carregar dashboard");
-        return;
-      }
+      try {
+        const qs = dashboardQueryString();
+        const res = await fetch("/api/dashboard/summary?" + qs);
+        const data = await res.json();
+        if (!res.ok || data.ok === false) {
+          setStatus(data.message || "Erro ao carregar dashboard");
+          return;
+        }
+        let logsData = { logs: "" };
+        try {
+          const logsRes = await fetch("/api/logs");
+          const contentType = String(logsRes.headers.get("content-type") || "");
+          if (contentType.includes("application/json")) {
+            const parsed = await logsRes.json();
+            logsData = parsed && typeof parsed === "object" ? parsed : { logs: "" };
+          }
+        } catch (_) {}
       const c = data.cards || {};
       const cmp = data.comparativo || {};
       setDashValue("dash_total", fmtDashNumber(c.total_solicitacoes || 0));
@@ -951,6 +957,9 @@
       const from = String(p.from || "");
       const to = String(p.to || "");
       setStatus("Dashboard atualizado (" + fmtDateBR(from) + " a " + fmtDateBR(to) + ")");
+      } catch (err) {
+        setStatus("Erro ao carregar dashboard");
+      }
     }
 
     function openReserveSection(section){
