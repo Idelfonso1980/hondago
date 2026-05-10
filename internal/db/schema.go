@@ -603,10 +603,12 @@ func (s *Store) ensurePostgresSchemaBootstrap(ctx context.Context) error {
 		`INSERT INTO roles (id, name, description) VALUES (4, 'viewer', 'Somente Leitura') ON CONFLICT (id) DO NOTHING`,
 		`INSERT INTO roles (id, name, description) VALUES (5, 'supervisor', 'Supervisor de Equipe') ON CONFLICT (id) DO NOTHING`,
 		`INSERT INTO roles (id, name, description) VALUES (6, 'gerente', 'Gerente de Filial') ON CONFLICT (id) DO NOTHING`,
+		`INSERT INTO roles (id, name, description) VALUES (7, 'super_usuario', 'Super Usuário (sem operações destrutivas)') ON CONFLICT (id) DO NOTHING`,
 		`INSERT INTO role_permissions (role_id, permission_key) VALUES
 			(1,'dashboard:read'), (1,'solicitacoes:read'), (1,'solicitacoes:create'), (1,'solicitacoes:edit'), (1,'solicitacoes:delete'), (1,'solicitacoes:print'),
 			(1,'cotas:reserve'), (1,'cotas:export'), (1,'users:read'), (1,'users:create'), (1,'users:edit'), (1,'users:delete'),
 			(1,'roles:manage'), (1,'configs:manage'), (1,'logs:read'), (1,'logs:delete'), (1,'audit:view'),
+			(1,'db:tables:create'), (1,'db:tables:clear'), (1,'db:tables:drop'), (1,'db:backup'), (1,'db:restore'),
 			(1,'nav:dashboard'), (1,'nav:reservas'), (1,'nav:monitor'), (1,'nav:logs'), (1,'nav:config'),
 			(1,'monitor:read'),
 			(1,'reservas:home'), (1,'reservas:solicitacoes'), (1,'reservas:minhas'), (1,'reservas:solicitar'), (1,'reservas:reservadas'), (1,'reservas:mensagens'), (1,'reservas:config'),
@@ -636,6 +638,15 @@ func (s *Store) ensurePostgresDefaultRolePermissions(ctx context.Context) error 
 		"nav:reservas",
 		"reservas:home", "reservas:minhas", "reservas:solicitar",
 	}
+	superUsuarioPerms := []string{
+		"dashboard:read", "solicitacoes:read", "solicitacoes:create", "solicitacoes:edit", "solicitacoes:print",
+		"cotas:reserve", "cotas:export",
+		"users:read", "users:create", "users:edit",
+		"configs:manage", "logs:read", "audit:view", "monitor:read",
+		"nav:dashboard", "nav:reservas", "nav:monitor", "nav:logs", "nav:config",
+		"reservas:home", "reservas:solicitacoes", "reservas:minhas", "reservas:solicitar", "reservas:reservadas", "reservas:mensagens", "reservas:config",
+		"config:users", "config:appusers", "config:audit", "config:idsgrupos", "config:active_groups", "config:assemblies", "config:models", "config:produtos",
+	}
 	seedRolePermsIfEmpty := func(roleID int64, perms []string) error {
 		var count int64
 		if err := tx.QueryRowContext(ctx, "SELECT COUNT(1) FROM role_permissions WHERE role_id = $1", roleID).Scan(&count); err != nil {
@@ -656,6 +667,9 @@ func (s *Store) ensurePostgresDefaultRolePermissions(ctx context.Context) error 
 		if err := seedRolePermsIfEmpty(roleID, vendedorPerms); err != nil {
 			return err
 		}
+	}
+	if err := seedRolePermsIfEmpty(7, superUsuarioPerms); err != nil {
+		return err
 	}
 	return tx.Commit()
 }
@@ -922,11 +936,15 @@ func (s *Store) ensureRolesSeed(ctx context.Context) error {
 	if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO roles (id, name, description) VALUES (6, 'gerente', 'Gerente de Filial')"); err != nil {
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO roles (id, name, description) VALUES (7, 'super_usuario', 'Super Usuário (sem operações destrutivas)')"); err != nil {
+		return err
+	}
 
 	// Admin permissions (example mapping)
 	adminPerms := []string{
 		"dashboard:read", "solicitacoes:read", "solicitacoes:create", "solicitacoes:edit", "solicitacoes:delete", "solicitacoes:print",
 		"cotas:reserve", "cotas:export", "users:read", "users:create", "users:edit", "users:delete", "roles:manage", "configs:manage", "logs:read", "logs:delete", "audit:view",
+		"db:tables:create", "db:tables:clear", "db:tables:drop", "db:backup", "db:restore",
 		"nav:dashboard", "nav:reservas", "nav:monitor", "nav:logs", "nav:config",
 		"monitor:read",
 		"reservas:home", "reservas:solicitacoes", "reservas:minhas", "reservas:solicitar", "reservas:reservadas", "reservas:mensagens", "reservas:config",
@@ -942,6 +960,15 @@ func (s *Store) ensureRolesSeed(ctx context.Context) error {
 		"dashboard:read", "solicitacoes:read", "solicitacoes:create", "solicitacoes:edit", "cotas:reserve",
 		"nav:reservas",
 		"reservas:home", "reservas:minhas", "reservas:solicitar",
+	}
+	superUsuarioPerms := []string{
+		"dashboard:read", "solicitacoes:read", "solicitacoes:create", "solicitacoes:edit", "solicitacoes:print",
+		"cotas:reserve", "cotas:export",
+		"users:read", "users:create", "users:edit",
+		"configs:manage", "logs:read", "audit:view", "monitor:read",
+		"nav:dashboard", "nav:reservas", "nav:monitor", "nav:logs", "nav:config",
+		"reservas:home", "reservas:solicitacoes", "reservas:minhas", "reservas:solicitar", "reservas:reservadas", "reservas:mensagens", "reservas:config",
+		"config:users", "config:appusers", "config:audit", "config:idsgrupos", "config:active_groups", "config:assemblies", "config:models", "config:produtos",
 	}
 	seedRolePermsIfEmpty := func(roleID int64, perms []string) error {
 		var count int64
@@ -963,6 +990,9 @@ func (s *Store) ensureRolesSeed(ctx context.Context) error {
 		if err := seedRolePermsIfEmpty(roleID, vendedorPerms); err != nil {
 			return err
 		}
+	}
+	if err := seedRolePermsIfEmpty(7, superUsuarioPerms); err != nil {
+		return err
 	}
 
 	return tx.Commit()
