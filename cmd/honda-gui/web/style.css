@@ -356,11 +356,15 @@
       font-weight: 700;
       letter-spacing: 0.2px;
       transition: transform .12s ease, background .12s ease, border-color .12s ease, color .12s ease;
-      min-height: 34px;
+      min-height: 38px;
+      height: 38px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
       gap: 8px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .btn:hover {
@@ -635,19 +639,28 @@
 
     .config-sections {
       margin-bottom: 12px;
-      display: flex;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(190px, 190px));
+      justify-content: start;
       gap: 8px;
-      flex-wrap: wrap;
     }
 
     .config-tab {
       border: 1px solid var(--line-strong);
       border-radius: 9px;
       padding: 8px 12px;
+      width: 190px;
+      min-height: 38px;
+      height: 38px;
       background: #f8fafc;
       color: #334155;
       font-size: 13px;
       font-weight: 700;
+      text-align: center;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1;
       cursor: pointer;
     }
 
@@ -762,10 +775,46 @@
     }
 
     .auth-toolbar {
-      display: flex;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(190px, 190px));
+      justify-content: start;
       gap: 8px;
-      flex-wrap: wrap;
       margin-bottom: 10px;
+    }
+    .auth-toolbar .btn {
+      width: 190px;
+      min-height: 40px;
+      height: 40px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1;
+      text-align: center;
+    }
+    #config-rbac .auth-toolbar,
+    #config-audit .auth-toolbar {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    #config-rbac .auth-toolbar h3,
+    #config-audit .auth-toolbar h3 {
+      margin: 0;
+      white-space: nowrap;
+    }
+    #config-rbac .auth-toolbar p,
+    #config-audit .auth-toolbar p {
+      margin: 0;
+      flex: 1 1 520px;
+      max-width: none;
+      line-height: 1.3;
+      white-space: normal;
+    }
+    #config-audit .auth-toolbar .btn {
+      width: auto;
+      min-width: 170px;
+      margin-top: 0 !important;
     }
 
     .dash-grid-cards {
@@ -1152,14 +1201,42 @@
       justify-content: center;
       gap: 8px;
       flex-wrap: nowrap;
-      overflow-x: auto;
+      overflow-x: visible;
       min-height: 57px;
     }
 
     .form-footer .btn {
-      min-width: 140px;
+      min-width: 0;
       text-align: center;
       white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    #reserve-config .form-footer {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      justify-content: stretch;
+      gap: 8px;
+      overflow: visible;
+      min-height: 0;
+    }
+    #reserve-config .form-footer .btn {
+      width: 100%;
+      min-width: 0;
+    }
+
+    #config-database .form-footer {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      justify-content: stretch;
+      gap: 8px;
+      overflow: visible;
+      min-height: 0;
+    }
+    #config-database .form-footer .btn {
+      width: 100%;
+      min-width: 0;
     }
 
     .log-panel {
@@ -1344,6 +1421,14 @@
       font-size: 17px;
       color: #fff;
     }
+    .modal-head .btn {
+      min-width: 150px;
+      height: 38px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      flex: 0 0 auto;
+    }
 
     .modal-sub {
       margin: 4px 0 0;
@@ -1524,6 +1609,22 @@
     }
 
     @media (max-width: 1180px) {
+      .top-left {
+        min-width: 160px;
+      }
+      .title h1 {
+        font-size: 18px;
+      }
+      .title p {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      #status {
+        width: auto;
+        min-width: 240px;
+        max-width: 380px;
+      }
       .content {
         grid-template-columns: 1fr;
         align-items: start;
@@ -1600,6 +1701,11 @@
       }
       .top-left { min-width: auto; }
       .title { flex: 1 1 220px; }
+      .title p {
+        white-space: normal;
+        overflow: visible;
+        text-overflow: clip;
+      }
       .top-actions {
         width: 100%;
         justify-content: flex-end;
@@ -1614,8 +1720,43 @@
         grid-template-columns: 1fr;
       }
       .home-search-row { grid-template-columns: 1fr; }
+      .config-sections {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .config-tab {
+        width: 100%;
+      }
+      .auth-toolbar {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .auth-toolbar .btn {
+        width: 100%;
+      }
+      #config-rbac .auth-toolbar,
+      #config-audit .auth-toolbar {
+        display: flex;
+      }
+      #config-rbac .auth-toolbar h3,
+      #config-audit .auth-toolbar h3,
+      #config-rbac .auth-toolbar p,
+      #config-audit .auth-toolbar p {
+        flex: 1 1 100%;
+      }
+      #config-audit .auth-toolbar .btn {
+        width: 100%;
+      }
       .dash-filters {
         grid-template-columns: 1fr;
+      }
+      #config-database .form-footer {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      #config-database .form-footer .btn {
+        width: 100%;
+        min-width: 0;
+      }
+      #reserve-config .form-footer {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
       }
       .dash-bar-row {
         grid-template-columns: minmax(90px, 120px) 1fr auto;
