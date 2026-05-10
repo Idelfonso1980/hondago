@@ -2981,15 +2981,11 @@ SELECT COALESCE(NULLIF(TRIM(branch), ''), '(Sem filial)') AS nome,
        COUNT(1) AS total,
        0 AS atendidas
 FROM requests
-WHERE NOT (`+atendidaCond+`)`+func() string {
-		if supervisorScope != "" {
-			return "\n  AND " + supervisorScope
-		}
-		return ""
-	}()+`
+WHERE `+whereClause+`
+  AND NOT (`+atendidaCond+`)
 GROUP BY nome
 ORDER BY total DESC
-LIMIT 10`, supervisorArgs...)
+LIMIT 10`, whereArgs...)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -3005,7 +3001,7 @@ LIMIT 10`, supervisorArgs...)
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	ultimaAtendidaDelta, ultimaAtendidaEm, err := queryTempoDesdeUltimaAtendida(r.Context(), store.DB, filialSel)
+	ultimaAtendidaDelta, ultimaAtendidaEm, err := queryTempoDesdeUltimaAtendida(r.Context(), store.DB, filialSel, supervisorScope, supervisorArgs)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -3016,6 +3012,12 @@ LIMIT 10`, supervisorArgs...)
 		return
 	}
 	if sess != nil && isSupervisorRole(sess.Role) {
+		b := strings.TrimSpace(sess.branch)
+		if b != "" {
+			filiaisFiltro = []string{b}
+		}
+	}
+	if sess != nil && isGerenteRole(sess.Role) {
 		b := strings.TrimSpace(sess.branch)
 		if b != "" {
 			filiaisFiltro = []string{b}
@@ -3444,15 +3446,19 @@ func percentileLinear(sorted []float64, p float64) float64 {
 	return sorted[lo] + (sorted[hi]-sorted[lo])*frac
 }
 
-func queryTempoDesdeUltimaAtendida(ctx context.Context, dbConn *sql.DB, branch string) (int64, string, error) {
+func queryTempoDesdeUltimaAtendida(ctx context.Context, dbConn *sql.DB, branch string, extraScope string, extraArgs []any) (int64, string, error) {
 	conds := []string{
 		`(served_at IS NOT NULL AND TRIM(CAST(served_at AS TEXT)) <> '') OR
 		 (served_date IS NOT NULL AND TRIM(CAST(served_date AS TEXT)) <> '')`,
 	}
-	args := make([]any, 0, 1)
+	args := make([]any, 0, 1+len(extraArgs))
 	if strings.TrimSpace(branch) != "" {
 		conds = append(conds, `COALESCE(TRIM(branch),'') = ?`)
 		args = append(args, strings.TrimSpace(branch))
+	}
+	if strings.TrimSpace(extraScope) != "" {
+		conds = append(conds, extraScope)
+		args = append(args, extraArgs...)
 	}
 	row := dbConn.QueryRowContext(ctx, `
 SELECT MAX(
