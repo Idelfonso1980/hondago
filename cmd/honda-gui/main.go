@@ -2022,6 +2022,10 @@ func buildSupervisorRequestsScope(ctx context.Context, store *db.Store, sess *ap
 	}
 	subordinates := mergeUniqueSubordinates(byUser, byName)
 	if len(subordinates) == 0 {
+		branch := strings.TrimSpace(sess.branch)
+		if branch != "" {
+			return "COALESCE(TRIM(branch),'') = ?", []any{branch}, nil
+		}
 		return "1=0", nil, nil
 	}
 
@@ -2054,6 +2058,10 @@ func buildSupervisorRequestsScope(ctx context.Context, store *db.Store, sess *ap
 		}
 	}
 	if len(sellerKeys) == 0 && len(cpfKeys) == 0 {
+		branch := strings.TrimSpace(sess.branch)
+		if branch != "" {
+			return "COALESCE(TRIM(branch),'') = ?", []any{branch}, nil
+		}
 		return "1=0", nil, nil
 	}
 
