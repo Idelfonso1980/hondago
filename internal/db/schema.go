@@ -28,8 +28,13 @@ func legacySchemas() []tableSchema {
 		},
 		{
 			Name:         "users",
-			CreateFormat: `CREATE TABLE %s ("id" INTEGER NOT NULL PRIMARY KEY, "username" VARCHAR(255) NOT NULL, "password_hash" VARCHAR(255) NOT NULL, "full_name" VARCHAR(255) NOT NULL DEFAULT '', "manager" VARCHAR(255), "supervisor" VARCHAR(255), "cpf" VARCHAR(32), "branch" VARCHAR(64), "email" VARCHAR(255), "phone" VARCHAR(20), "role" VARCHAR(64) NOT NULL DEFAULT 'operador', "is_active" INTEGER NOT NULL DEFAULT 1, "failed_login_attempts" INTEGER NOT NULL DEFAULT 0, "mfa_enabled" INTEGER NOT NULL DEFAULT 0, "mfa_secret" VARCHAR(255), "locked_until" DATETIME, "last_login_at" DATETIME, "updated_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "created_at" DATETIME NOT NULL)`,
-			Columns:      []string{"id", "username", "password_hash", "full_name", "manager", "supervisor", "cpf", "branch", "email", "phone", "role", "is_active", "failed_login_attempts", "mfa_enabled", "mfa_secret", "locked_until", "last_login_at", "updated_at", "created_at"},
+			CreateFormat: `CREATE TABLE %s ("id" INTEGER NOT NULL PRIMARY KEY, "username" VARCHAR(255) NOT NULL, "password_hash" VARCHAR(255) NOT NULL, "full_name" VARCHAR(255) NOT NULL DEFAULT '', "manager" VARCHAR(255), "supervisor" VARCHAR(255), "cpf" VARCHAR(32), "branch" VARCHAR(64), "email" VARCHAR(255), "phone" VARCHAR(20), "role" VARCHAR(64) NOT NULL DEFAULT 'operador', "is_active" INTEGER NOT NULL DEFAULT 1, "failed_login_attempts" INTEGER NOT NULL DEFAULT 0, "mfa_enabled" INTEGER NOT NULL DEFAULT 0, "mfa_secret" VARCHAR(255), "locked_until" DATETIME, "last_login_at" DATETIME, "must_change_password" INTEGER NOT NULL DEFAULT 0, "password_changed_at" DATETIME, "temp_password_issued_at" DATETIME, "updated_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "created_at" DATETIME NOT NULL)`,
+			Columns:      []string{"id", "username", "password_hash", "full_name", "manager", "supervisor", "cpf", "branch", "email", "phone", "role", "is_active", "failed_login_attempts", "mfa_enabled", "mfa_secret", "locked_until", "last_login_at", "must_change_password", "password_changed_at", "temp_password_issued_at", "updated_at", "created_at"},
+		},
+		{
+			Name:         "app_settings",
+			CreateFormat: `CREATE TABLE %s ("key" VARCHAR(128) NOT NULL PRIMARY KEY, "value" TEXT, "updated_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+			Columns:      []string{"key", "value", "updated_at"},
 		},
 		{
 			Name:         "api_accounts",
@@ -377,8 +382,16 @@ func (s *Store) ensurePostgresSchemaBootstrap(ctx context.Context) error {
 			mfa_secret VARCHAR(255),
 			locked_until TIMESTAMP,
 			last_login_at TIMESTAMP,
+			must_change_password SMALLINT NOT NULL DEFAULT 0,
+			password_changed_at TIMESTAMP,
+			temp_password_issued_at TIMESTAMP,
 			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			created_at TIMESTAMP NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS app_settings (
+			key VARCHAR(128) PRIMARY KEY,
+			value TEXT,
+			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE TABLE IF NOT EXISTS role_permissions (
 			role_id BIGINT NOT NULL,
@@ -555,6 +568,9 @@ func (s *Store) ensurePostgresSchemaBootstrap(ctx context.Context) error {
 		)`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS supervisor VARCHAR(255)`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS manager VARCHAR(255)`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password SMALLINT NOT NULL DEFAULT 0`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMP`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS temp_password_issued_at TIMESTAMP`,
 		`ALTER TABLE role_permissions DROP CONSTRAINT IF EXISTS fk_role_permissions_role`,
 		`ALTER TABLE role_permissions ADD CONSTRAINT fk_role_permissions_role FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE`,
 		`ALTER TABLE api_accounts DROP CONSTRAINT IF EXISTS fk_api_accounts_user`,
@@ -612,7 +628,7 @@ func (s *Store) ensurePostgresSchemaBootstrap(ctx context.Context) error {
 			(1,'nav:dashboard'), (1,'nav:reservas'), (1,'nav:monitor'), (1,'nav:logs'), (1,'nav:config'),
 			(1,'monitor:read'),
 			(1,'reservas:home'), (1,'reservas:solicitacoes'), (1,'reservas:minhas'), (1,'reservas:solicitar'), (1,'reservas:reservadas'), (1,'reservas:mensagens'), (1,'reservas:config'),
-			(1,'config:users'), (1,'config:appusers'), (1,'config:rbac'), (1,'config:audit'), (1,'config:database'), (1,'config:idsgrupos'), (1,'config:active_groups'), (1,'config:assemblies'), (1,'config:models'), (1,'config:produtos')
+			(1,'config:users'), (1,'config:appusers'), (1,'config:rbac'), (1,'config:audit'), (1,'config:database'), (1,'config:password_policy'), (1,'config:idsgrupos'), (1,'config:active_groups'), (1,'config:assemblies'), (1,'config:models'), (1,'config:produtos')
 		ON CONFLICT DO NOTHING`,
 	}
 	for _, stmt := range stmts {
@@ -948,7 +964,7 @@ func (s *Store) ensureRolesSeed(ctx context.Context) error {
 		"nav:dashboard", "nav:reservas", "nav:monitor", "nav:logs", "nav:config",
 		"monitor:read",
 		"reservas:home", "reservas:solicitacoes", "reservas:minhas", "reservas:solicitar", "reservas:reservadas", "reservas:mensagens", "reservas:config",
-		"config:users", "config:appusers", "config:rbac", "config:audit", "config:database", "config:idsgrupos", "config:active_groups", "config:assemblies", "config:models", "config:produtos",
+		"config:users", "config:appusers", "config:rbac", "config:audit", "config:database", "config:password_policy", "config:idsgrupos", "config:active_groups", "config:assemblies", "config:models", "config:produtos",
 	}
 	for _, p := range adminPerms {
 		if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO role_permissions (role_id, permission_key) VALUES (1, ?)", p); err != nil {

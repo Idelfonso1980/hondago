@@ -792,24 +792,35 @@
       text-align: center;
     }
     #config-rbac .auth-toolbar,
-    #config-audit .auth-toolbar {
+    #config-audit .auth-toolbar,
+    #config-password_policy .pp-head-toolbar {
       display: flex;
       align-items: flex-start;
       gap: 10px;
       flex-wrap: wrap;
     }
+    #config-password_policy .pp-head-toolbar {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 2px;
+    }
     #config-rbac .auth-toolbar h3,
-    #config-audit .auth-toolbar h3 {
+    #config-audit .auth-toolbar h3,
+    #config-password_policy .pp-head-toolbar h3 {
       margin: 0;
-      white-space: nowrap;
+      white-space: normal;
     }
     #config-rbac .auth-toolbar p,
-    #config-audit .auth-toolbar p {
+    #config-audit .auth-toolbar p,
+    #config-password_policy .pp-head-toolbar p {
       margin: 0;
       flex: 1 1 520px;
       max-width: none;
       line-height: 1.3;
       white-space: normal;
+    }
+    #config-password_policy .pp-head-toolbar p {
+      flex: 0 1 auto;
     }
     #config-audit .auth-toolbar .btn {
       width: auto;

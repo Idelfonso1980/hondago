@@ -57,6 +57,7 @@ var methodPolicy = map[string][]string{
 	"/api/app/mfa-login":                    {http.MethodPost},
 	"/api/app/logout":                       {http.MethodPost},
 	"/api/app/session":                      {http.MethodGet},
+	"/api/app/password/change":              {http.MethodPost},
 	"/api/mfa/setup":                        {http.MethodGet},
 	"/api/mfa/verify":                       {http.MethodPost},
 	"/api/appusers":                         {http.MethodGet},
@@ -123,6 +124,10 @@ var methodPolicy = map[string][]string{
 	"/api/db/backup":                        {http.MethodGet},
 	"/api/db/restore":                       {http.MethodPost},
 	"/api/db/restore-capabilities":          {http.MethodGet},
+	"/api/security/password-policy":         {http.MethodGet, http.MethodPost},
+	"/api/security/password-policy/force-all": {http.MethodPost},
+	"/api/security/password-policy/users":   {http.MethodGet},
+	"/api/security/password-policy/force-selected": {http.MethodPost},
 	"/api/stop":                             {http.MethodPost},
 	"/api/logs":                             {http.MethodGet},
 	"/api/logs/clear":                       {http.MethodPost},
@@ -150,6 +155,10 @@ var criticalPermissionPolicy = map[string]string{
 	"/api/db/backup":                    "db:backup",
 	"/api/db/restore":                   "db:restore",
 	"/api/db/restore-capabilities":      "config:database",
+	"/api/security/password-policy":     "config:password_policy",
+	"/api/security/password-policy/force-all": "config:password_policy",
+	"/api/security/password-policy/users": "config:password_policy",
+	"/api/security/password-policy/force-selected": "config:password_policy",
 	"/api/rbac/matrix":                  "roles:manage",
 	"/api/rbac/update":                  "roles:manage",
 	"/api/audit/list":                   "audit:view",
@@ -341,6 +350,7 @@ type appSession struct {
 	branch          string
 	Role            string
 	Permissions     []string
+	MustChangePassword bool
 	AuthenticatedAt time.Time
 }
 
@@ -574,6 +584,18 @@ type appLoginPayload struct {
 	Password string `json:"password"`
 }
 
+type appPasswordChangePayload struct {
+	NewPassword string `json:"new_password"`
+}
+
+type passwordPolicyPayload struct {
+	Enabled bool `json:"enabled"`
+}
+
+type passwordPolicyUsersPayload struct {
+	IDs []int64 `json:"ids"`
+}
+
 type appUserPayload struct {
 	ID                  int64  `json:"id"`
 	Search              string `json:"search,omitempty"`
@@ -593,6 +615,9 @@ type appUserPayload struct {
 	FailedLoginAttempts int64  `json:"failed_login_attempts,omitempty"`
 	LockedUntil         string `json:"locked_until,omitempty"`
 	LastLoginAt         string `json:"last_login_at,omitempty"`
+	MustChangePassword  bool   `json:"must_change_password,omitempty"`
+	PasswordChangedAt   string `json:"password_changed_at,omitempty"`
+	TempPasswordIssuedAt string `json:"temp_password_issued_at,omitempty"`
 	UpdatedAt           string `json:"updated_at,omitempty"`
 	CreatedAt           string `json:"created_at,omitempty"`
 }
@@ -664,6 +689,7 @@ func main() {
 	mux.HandleFunc("/api/app/mfa-login", app.handleAppMFALogin)
 	mux.HandleFunc("/api/app/logout", app.handleAppLogout)
 	mux.HandleFunc("/api/app/session", app.handleAppSession)
+	mux.HandleFunc("/api/app/password/change", app.handleAppPasswordChange)
 	mux.HandleFunc("/api/mfa/setup", app.handleMFASetup)
 	mux.HandleFunc("/api/mfa/verify", app.handleMFAVerify)
 	mux.HandleFunc("/api/appusers", app.handleAppUsersSearch)
@@ -730,6 +756,10 @@ func main() {
 	mux.HandleFunc("/api/db/backup", app.handleDBBackup)
 	mux.HandleFunc("/api/db/restore", app.handleDBRestore)
 	mux.HandleFunc("/api/db/restore-capabilities", app.handleDBRestoreCapabilities)
+	mux.HandleFunc("/api/security/password-policy", app.handlePasswordPolicy)
+	mux.HandleFunc("/api/security/password-policy/force-all", app.handlePasswordPolicyForceAll)
+	mux.HandleFunc("/api/security/password-policy/users", app.handlePasswordPolicyUsers)
+	mux.HandleFunc("/api/security/password-policy/force-selected", app.handlePasswordPolicyForceSelected)
 	mux.HandleFunc("/api/stop", app.handleStop)
 	mux.HandleFunc("/api/logs", app.handleLogs)
 	mux.HandleFunc("/api/logs/clear", app.handleClearLogs)
@@ -805,6 +835,28 @@ func (a *app) withAuth(next http.Handler) http.Handler {
 			if requiredPerm := strings.TrimSpace(criticalPermissionPolicy[path]); requiredPerm != "" && !sessionHasPermission(sess, requiredPerm) {
 				writeJSON(w, http.StatusForbidden, runResponse{OK: false, Message: "Acesso negado: permissao necessaria: " + requiredPerm})
 				return
+			}
+			_, store, dbErr := a.openStoreFromCurrentConfig()
+			if dbErr != nil {
+				writeErr(w, http.StatusInternalServerError, dbErr)
+				return
+			}
+			forceChange, err := store.IsUserRequiredToChangePassword(r.Context(), sess.UserID)
+			if err != nil {
+				writeErr(w, http.StatusInternalServerError, err)
+				return
+			}
+			if forceChange {
+				isAllowed := path == "/api/app/session" || path == "/api/app/logout" || path == "/api/app/password/change"
+				if !isAllowed {
+					writeJSON(w, http.StatusForbidden, map[string]any{
+						"ok":                     false,
+						"code":                   "password_change_required",
+						"message":                "Troca de senha obrigatoria para continuar",
+						"password_change_required": true,
+					})
+					return
+				}
 			}
 			if isMutatingMethod(r.Method) && !isCSRFAuthorized(r) {
 				writeJSON(w, http.StatusForbidden, runResponse{OK: false, Message: "CSRF token invalido"})
@@ -987,6 +1039,7 @@ func (a *app) currentSession(r *http.Request) (*appSession, bool) {
 		_ = store.DeleteAppSession(r.Context(), c.Value)
 		return nil, false
 	}
+	mustChange, _ := store.IsUserRequiredToChangePassword(r.Context(), s.UserID)
 
 	return &appSession{
 		Token:           s.Token,
@@ -997,6 +1050,7 @@ func (a *app) currentSession(r *http.Request) (*appSession, bool) {
 		branch:          s.Filial.String,
 		Role:            s.Role,
 		Permissions:     s.Permissions,
+		MustChangePassword: mustChange,
 		AuthenticatedAt: s.AuthenticatedAt,
 	}, true
 }
@@ -1122,6 +1176,9 @@ func appUserToPayload(r *db.AppUserRecord) appUserPayload {
 		FailedLoginAttempts: r.FailedLoginAttempts,
 		LockedUntil:         nullTimeStr(r.LockedUntil),
 		LastLoginAt:         nullTimeStr(r.LastLoginAt),
+		MustChangePassword:  r.MustChangePassword != 0,
+		PasswordChangedAt:   nullTimeStr(r.PasswordChangedAt),
+		TempPasswordIssuedAt: nullTimeStr(r.TempPasswordIssuedAt),
 		UpdatedAt:           nullTimeStr(r.UpdatedAt),
 		CreatedAt:           nullTimeStr(r.CreatedAt),
 	}
@@ -1245,6 +1302,7 @@ func (a *app) handleAppLogin(w http.ResponseWriter, r *http.Request) {
 		"branch":      strings.TrimSpace(user.Filial.String),
 		"role":        user.Role,
 		"permissions": perms,
+		"password_change_required": user.MustChangePassword == 1,
 	})
 }
 
@@ -1258,6 +1316,163 @@ func (a *app) handleAppLogout(w http.ResponseWriter, r *http.Request) {
 	}
 	a.clearSessionCookie(w)
 	writeJSON(w, http.StatusOK, runResponse{OK: true, Message: "SessÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â£o encerrada"})
+}
+
+func (a *app) handleAppPasswordChange(w http.ResponseWriter, r *http.Request) {
+	sess, ok := a.currentSession(r)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, runResponse{OK: false, Message: "Nao autenticado"})
+		return
+	}
+	var p appPasswordChangePayload
+	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	newPassword := strings.TrimSpace(p.NewPassword)
+	if newPassword == "" {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("nova senha obrigatoria"))
+		return
+	}
+	_, store, err := a.openStoreFromCurrentConfig()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	if err := store.ChangeOwnPassword(r.Context(), sess.UserID, newPassword); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	a.logAudit(r, "CHANGE_OWN_PASSWORD", "users", strconv.FormatInt(sess.UserID, 10), "", "password_changed")
+	writeJSON(w, http.StatusOK, runResponse{OK: true, Message: "Senha atualizada com sucesso"})
+}
+
+func (a *app) handlePasswordPolicy(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		if !a.requirePermission(w, r, "config:password_policy") {
+			return
+		}
+		_, store, err := a.openStoreFromCurrentConfig()
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		enabled, err := store.IsPasswordPolicyEnabled(r.Context())
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		pending, err := store.CountUsersMustChangePassword(r.Context())
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "enabled": enabled, "pending": pending})
+		return
+	}
+	if !a.requirePermission(w, r, "config:password_policy") {
+		return
+	}
+	var p passwordPolicyPayload
+	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	_, store, err := a.openStoreFromCurrentConfig()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	if err := store.SetPasswordPolicyEnabled(r.Context(), p.Enabled); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	a.logAudit(r, "PASSWORD_POLICY_SET", "security", "password_policy_enabled", "", fmt.Sprintf("enabled=%v", p.Enabled))
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": "Politica de senha atualizada", "enabled": p.Enabled})
+}
+
+func (a *app) handlePasswordPolicyForceAll(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, "config:password_policy") {
+		return
+	}
+	_, store, err := a.openStoreFromCurrentConfig()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	affected, err := store.ForceAllActiveUsersTemporaryPassword(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	a.logAudit(r, "PASSWORD_FORCE_ALL_TEMP", "security", "users", "", fmt.Sprintf("affected=%d", affected))
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":       true,
+		"affected": affected,
+		"message":  fmt.Sprintf("Usuarios ativos marcados para troca obrigatoria: %d", affected),
+	})
+}
+
+func (a *app) handlePasswordPolicyUsers(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, "config:password_policy") {
+		return
+	}
+	_, store, err := a.openStoreFromCurrentConfig()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	offset, _ := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("offset")))
+	limit, _ := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("limit")))
+	items, total, err := store.ListAppUsersForPasswordPolicy(r.Context(), db.AppUserPolicyFilter{
+		Query:          strings.TrimSpace(r.URL.Query().Get("q")),
+		Role:           strings.TrimSpace(r.URL.Query().Get("role")),
+		Branch:         strings.TrimSpace(r.URL.Query().Get("branch")),
+		IsActive:       strings.TrimSpace(r.URL.Query().Get("is_active")),
+		MustChangeOnly: strings.TrimSpace(r.URL.Query().Get("must_change")),
+		Offset:         offset,
+		Limit:          limit,
+	})
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	out := make([]appUserPayload, 0, len(items))
+	for i := range items {
+		out = append(out, appUserToPayload(&items[i]))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":    true,
+		"items": out,
+		"total": total,
+	})
+}
+
+func (a *app) handlePasswordPolicyForceSelected(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, "config:password_policy") {
+		return
+	}
+	var p passwordPolicyUsersPayload
+	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	_, store, err := a.openStoreFromCurrentConfig()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	affected, err := store.ForceTemporaryPasswordsByIDs(r.Context(), p.IDs)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	a.logAudit(r, "PASSWORD_FORCE_SELECTED_TEMP", "security", "users", "", fmt.Sprintf("ids=%d affected=%d", len(p.IDs), affected))
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":       true,
+		"affected": affected,
+		"message":  fmt.Sprintf("Usuários selecionados marcados para troca obrigatória: %d", affected),
+	})
 }
 
 func (a *app) handleAppSession(w http.ResponseWriter, r *http.Request) {
@@ -1276,6 +1491,7 @@ func (a *app) handleAppSession(w http.ResponseWriter, r *http.Request) {
 		"branch":        s.branch,
 		"role":          s.Role,
 		"permissions":   s.Permissions,
+		"password_change_required": s.MustChangePassword,
 	})
 }
 
@@ -6347,5 +6563,6 @@ func (a *app) handleAppMFALogin(w http.ResponseWriter, r *http.Request) {
 		"branch":      user.Filial.String,
 		"role":        user.Role,
 		"permissions": perms,
+		"password_change_required": user.MustChangePassword == 1,
 	})
 }

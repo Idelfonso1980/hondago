@@ -685,6 +685,7 @@
               <button type="button" class="config-tab" data-config-tab="assemblies" onclick="openConfigSection('assemblies')">Assembleia</button>
               <button type="button" class="config-tab" data-config-tab="models" onclick="openConfigSection('models')">Modelos</button>
               <button type="button" class="config-tab" data-config-tab="produtos" onclick="openConfigSection('produtos')">Produtos</button>
+              <button type="button" class="config-tab" data-config-tab="password_policy" onclick="openConfigSection('password_policy')">Segurança Senhas</button>
               <button type="button" class="config-tab" data-config-tab="database" onclick="openConfigSection('database')">Banco de Dados</button>
             </div>
 
@@ -915,6 +916,107 @@
                   </thead>
                   <tbody id="gaTableBody">
                     <tr><td colspan="14">Sem resultados. Faça uma busca.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section id="config-password_policy" class="config-section hidden">
+              <div class="auth-toolbar pp-head-toolbar">
+                <h3>Política de Senhas</h3>
+                <p>Ative a troca obrigatória e force senha temporária para todos os usuários ativos quando necessário.</p>
+              </div>
+
+              <div class="field-grid" style="margin-top: 10px;">
+                <div class="field full">
+                  <label>Ativar política de troca obrigatória</label>
+                  <div class="check-wrap">
+                    <input type="checkbox" id="password_policy_enabled" />
+                    Quando ativa, usuários marcados com senha temporária devem trocar senha no próximo login.
+                  </div>
+                </div>
+              </div>
+
+              <div class="auth-toolbar" style="margin-top: 10px;">
+                <button class="btn" onclick="savePasswordPolicy()">Salvar Política</button>
+                <button class="btn btn-danger" onclick="forceAllTemporaryPasswords()">Tornar Senhas Temporárias</button>
+              </div>
+
+              <div class="field" style="margin-top: 8px;">
+                <label>Status</label>
+                <input id="password_policy_status" class="readonly" readonly value="Carregando..." />
+              </div>
+
+              <div class="auth-search-row" style="margin-top: 12px;">
+                <div class="field">
+                  <label>Busca (id, username, nome, cpf, filial, email)</label>
+                  <input id="pp_search" placeholder="Ex: 1, admin, 11888140879, TER" />
+                </div>
+                <div class="field">
+                  <label>Perfil</label>
+                  <input id="pp_role" placeholder="Ex: admin, operador, vendedor" />
+                </div>
+                <div class="field">
+                  <label>Filial</label>
+                  <input id="pp_branch" placeholder="Ex: TER" />
+                </div>
+                <div class="field">
+                  <label>Ativo</label>
+                  <select id="pp_is_active">
+                    <option value="">Todos</option>
+                    <option value="1">Ativos</option>
+                    <option value="0">Inativos</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Troca pendente</label>
+                  <select id="pp_must_change">
+                    <option value="">Todos</option>
+                    <option value="1">Sim</option>
+                    <option value="0">Não</option>
+                  </select>
+                </div>
+                <div style="display:flex; align-items:flex-end;">
+                  <button class="btn search-icon-btn" data-iconified="1" title="Buscar" aria-label="Buscar" onclick="loadPasswordPolicyUsers(0)">
+                    <span class="btn-ico" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" focusable="false">
+                        <circle cx="11" cy="11" r="7"></circle>
+                        <path d="M20 20l-3.5-3.5"></path>
+                      </svg>
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="auth-toolbar" style="margin-top: 8px;">
+                <button class="btn" onclick="togglePasswordPolicySelectAllPage()">Marcar Todos da Página</button>
+                <button class="btn" onclick="selectAllFilteredPasswordPolicyUsers()">Marcar Todos Filtrados</button>
+                <button class="btn btn-danger" onclick="forceSelectedTemporaryPasswords()">Aplicar aos Selecionados</button>
+              </div>
+
+              <div class="field" style="margin-top: 8px;">
+                <label>Seleção</label>
+                <input id="password_policy_selection_status" class="readonly" readonly value="0 selecionados" />
+              </div>
+
+              <div class="auth-table-wrap" style="margin-top: 10px;">
+                <table class="auth-table ga-table appuser-table">
+                  <thead>
+                    <tr>
+                      <th><input type="checkbox" id="pp_select_page" onchange="togglePasswordPolicySelectAllPage()" /></th>
+                      <th>ID</th>
+                      <th>Username</th>
+                      <th>Nome</th>
+                      <th>CPF</th>
+                      <th>Filial</th>
+                      <th>Perfil</th>
+                      <th>Ativo</th>
+                      <th>Pendente Troca</th>
+                      <th>Último Login</th>
+                    </tr>
+                  </thead>
+                  <tbody id="password_policy_users_tbody">
+                    <tr><td colspan="10">Sem resultados.</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -1689,6 +1791,31 @@
           </div>
         </div>
       </section>
+    </div>
+  </div>
+
+  <div id="passwordChangeModal" class="auth-modal hidden" onclick="closePasswordChangeModal(event)">
+    <div class="auth-modal-card">
+      <div class="auth-modal-head">
+        <div>
+          <h3>Troca de Senha Obrigatória</h3>
+          <p class="modal-sub">Sua conta está com senha temporária. Defina uma nova senha para continuar.</p>
+        </div>
+      </div>
+      <div class="auth-modal-body">
+        <div class="field">
+          <label>Nova senha</label>
+          <input id="password_change_new" type="password" placeholder="Mínimo 12 caracteres com maiúscula, minúscula, número e símbolo" />
+        </div>
+        <div class="field">
+          <label>Confirmar nova senha</label>
+          <input id="password_change_confirm" type="password" placeholder="Repita a nova senha" />
+        </div>
+        <p id="password_change_error" class="login-error"></p>
+        <div class="form-footer" style="margin-top:8px; padding-top:10px;">
+          <button class="btn" onclick="submitPasswordChange()">Atualizar Senha</button>
+        </div>
+      </div>
     </div>
   </div>
 

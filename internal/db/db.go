@@ -92,6 +92,9 @@ type AppUserRecord struct {
 	FailedLoginAttempts int64
 	LockedUntil         sql.NullTime
 	LastLoginAt         sql.NullTime
+	MustChangePassword  int64
+	PasswordChangedAt   sql.NullTime
+	TempPasswordIssuedAt sql.NullTime
 	UpdatedAt           sql.NullTime
 	CreatedAt           sql.NullTime
 }
@@ -117,6 +120,16 @@ type AppSessionRecord struct {
 	Role            string
 	Permissions     []string
 	AuthenticatedAt time.Time
+}
+
+type AppUserPolicyFilter struct {
+	Query          string
+	Role           string
+	Branch         string
+	IsActive       string
+	MustChangeOnly string
+	Offset         int
+	Limit          int
 }
 
 type Cota struct {
@@ -494,11 +507,16 @@ func validateStrongPassword(raw string) error {
 	return nil
 }
 
+func parseBoolSetting(raw string) bool {
+	v := strings.ToLower(strings.TrimSpace(raw))
+	return v == "1" || v == "true" || v == "yes" || v == "on"
+}
+
 func (s *Store) SearchAppUsers(ctx context.Context, query string, limit int) ([]AppUserRecord, error) {
 	if limit <= 0 {
 		limit = 200
 	}
-	cols := `id, username, password_hash, full_name, manager, supervisor, cpf, branch, email, phone, mfa_enabled, mfa_secret, role, is_active, failed_login_attempts, locked_until, last_login_at, updated_at, created_at`
+	cols := `id, username, password_hash, full_name, manager, supervisor, cpf, branch, email, phone, mfa_enabled, mfa_secret, role, is_active, failed_login_attempts, locked_until, last_login_at, must_change_password, password_changed_at, temp_password_issued_at, updated_at, created_at`
 	q := strings.TrimSpace(query)
 
 	var rows *sql.Rows
@@ -538,7 +556,7 @@ func (s *Store) SearchAppUsers(ctx context.Context, query string, limit int) ([]
 		var r AppUserRecord
 		if err := rows.Scan(
 			&r.ID, &r.Username, &r.PasswordHash, &r.DisplayName, &r.Manager, &r.Supervisor, &r.CPF, &r.Filial, &r.Email, &r.Phone, &r.MFAEnabled, &r.MFASecret, &r.Role, &r.IsActive,
-			&r.FailedLoginAttempts, &r.LockedUntil, &r.LastLoginAt, &r.UpdatedAt, &r.CreatedAt,
+			&r.FailedLoginAttempts, &r.LockedUntil, &r.LastLoginAt, &r.MustChangePassword, &r.PasswordChangedAt, &r.TempPasswordIssuedAt, &r.UpdatedAt, &r.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -553,7 +571,7 @@ func (s *Store) GetAppUserByID(ctx context.Context, id int64) (*AppUserRecord, e
 	}
 	row := s.DB.QueryRowContext(
 		ctx,
-		s.bind(`SELECT id, username, password_hash, full_name, manager, supervisor, cpf, branch, email, phone, mfa_enabled, mfa_secret, role, is_active, failed_login_attempts, locked_until, last_login_at, updated_at, created_at
+		s.bind(`SELECT id, username, password_hash, full_name, manager, supervisor, cpf, branch, email, phone, mfa_enabled, mfa_secret, role, is_active, failed_login_attempts, locked_until, last_login_at, must_change_password, password_changed_at, temp_password_issued_at, updated_at, created_at
 		 FROM users
 		 WHERE id=?`),
 		id,
@@ -561,7 +579,7 @@ func (s *Store) GetAppUserByID(ctx context.Context, id int64) (*AppUserRecord, e
 	var r AppUserRecord
 	if err := row.Scan(
 		&r.ID, &r.Username, &r.PasswordHash, &r.DisplayName, &r.Manager, &r.Supervisor, &r.CPF, &r.Filial, &r.Email, &r.Phone, &r.MFAEnabled, &r.MFASecret, &r.Role, &r.IsActive,
-		&r.FailedLoginAttempts, &r.LockedUntil, &r.LastLoginAt, &r.UpdatedAt, &r.CreatedAt,
+		&r.FailedLoginAttempts, &r.LockedUntil, &r.LastLoginAt, &r.MustChangePassword, &r.PasswordChangedAt, &r.TempPasswordIssuedAt, &r.UpdatedAt, &r.CreatedAt,
 	); err != nil {
 		return nil, err
 	}
@@ -575,7 +593,7 @@ func (s *Store) FindAppUserByUsername(ctx context.Context, username string) (*Ap
 	}
 	row := s.DB.QueryRowContext(
 		ctx,
-		s.bind(`SELECT id, username, password_hash, full_name, manager, supervisor, cpf, branch, email, phone, mfa_enabled, mfa_secret, role, is_active, failed_login_attempts, locked_until, last_login_at, updated_at, created_at
+		s.bind(`SELECT id, username, password_hash, full_name, manager, supervisor, cpf, branch, email, phone, mfa_enabled, mfa_secret, role, is_active, failed_login_attempts, locked_until, last_login_at, must_change_password, password_changed_at, temp_password_issued_at, updated_at, created_at
 		 FROM users
 		 WHERE username=?
 		 LIMIT 1`),
@@ -584,7 +602,7 @@ func (s *Store) FindAppUserByUsername(ctx context.Context, username string) (*Ap
 	var r AppUserRecord
 	if err := row.Scan(
 		&r.ID, &r.Username, &r.PasswordHash, &r.DisplayName, &r.Manager, &r.Supervisor, &r.CPF, &r.Filial, &r.Email, &r.Phone, &r.MFAEnabled, &r.MFASecret, &r.Role, &r.IsActive,
-		&r.FailedLoginAttempts, &r.LockedUntil, &r.LastLoginAt, &r.UpdatedAt, &r.CreatedAt,
+		&r.FailedLoginAttempts, &r.LockedUntil, &r.LastLoginAt, &r.MustChangePassword, &r.PasswordChangedAt, &r.TempPasswordIssuedAt, &r.UpdatedAt, &r.CreatedAt,
 	); err != nil {
 		return nil, err
 	}
@@ -599,7 +617,7 @@ func (s *Store) GetAppUserByCPF(ctx context.Context, cpf string) (*AppUserRecord
 	// Busca por CPF exato ou limpando formataÃ§Ã£o comum
 	row := s.DB.QueryRowContext(
 		ctx,
-		s.bind(`SELECT id, username, password_hash, full_name, manager, supervisor, cpf, branch, email, phone, mfa_enabled, mfa_secret, role, is_active, failed_login_attempts, locked_until, last_login_at, updated_at, created_at
+		s.bind(`SELECT id, username, password_hash, full_name, manager, supervisor, cpf, branch, email, phone, mfa_enabled, mfa_secret, role, is_active, failed_login_attempts, locked_until, last_login_at, must_change_password, password_changed_at, temp_password_issued_at, updated_at, created_at
 		 FROM users
 		 WHERE cpf = ? OR REPLACE(REPLACE(cpf, '.', ''), '-', '') = ?
 		 LIMIT 1`),
@@ -608,7 +626,7 @@ func (s *Store) GetAppUserByCPF(ctx context.Context, cpf string) (*AppUserRecord
 	var r AppUserRecord
 	if err := row.Scan(
 		&r.ID, &r.Username, &r.PasswordHash, &r.DisplayName, &r.Manager, &r.Supervisor, &r.CPF, &r.Filial, &r.Email, &r.Phone, &r.MFAEnabled, &r.MFASecret, &r.Role, &r.IsActive,
-		&r.FailedLoginAttempts, &r.LockedUntil, &r.LastLoginAt, &r.UpdatedAt, &r.CreatedAt,
+		&r.FailedLoginAttempts, &r.LockedUntil, &r.LastLoginAt, &r.MustChangePassword, &r.PasswordChangedAt, &r.TempPasswordIssuedAt, &r.UpdatedAt, &r.CreatedAt,
 	); err != nil {
 		return nil, err
 	}
@@ -664,9 +682,11 @@ func (s *Store) SaveAppUser(ctx context.Context, r AppUserRecord, plainPassword 
 				     mfa_secret=?,
 				     role=?,
 				     is_active=?,
+				     must_change_password=0,
+				     password_changed_at=?,
 				     updated_at=?
 				 WHERE id=?`),
-				username, hash, displayName, nullableTrimmed(r.Manager), nullableTrimmed(r.Supervisor), nullableTrimmed(r.CPF), nullableTrimmed(r.Filial), nullableTrimmed(r.Email), nullableTrimmed(r.Phone), r.MFAEnabled, nullableTrimmed(r.MFASecret), role, isActive, now, r.ID,
+				username, hash, displayName, nullableTrimmed(r.Manager), nullableTrimmed(r.Supervisor), nullableTrimmed(r.CPF), nullableTrimmed(r.Filial), nullableTrimmed(r.Email), nullableTrimmed(r.Phone), r.MFAEnabled, nullableTrimmed(r.MFASecret), role, isActive, now, now, r.ID,
 			)
 			if err != nil {
 				return 0, err
@@ -711,9 +731,9 @@ func (s *Store) SaveAppUser(ctx context.Context, r AppUserRecord, plainPassword 
 	var id int64
 	err = s.DB.QueryRowContext(
 		ctx,
-		s.bind(`INSERT INTO users (username, password_hash, full_name, manager, supervisor, cpf, branch, email, phone, mfa_enabled, mfa_secret, role, is_active, failed_login_attempts, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?) RETURNING id`),
-		username, hash, displayName, nullableTrimmed(r.Manager), nullableTrimmed(r.Supervisor), nullableTrimmed(r.CPF), nullableTrimmed(r.Filial), nullableTrimmed(r.Email), nullableTrimmed(r.Phone), r.MFAEnabled, nullableTrimmed(r.MFASecret), role, isActive, now, now,
+		s.bind(`INSERT INTO users (username, password_hash, full_name, manager, supervisor, cpf, branch, email, phone, mfa_enabled, mfa_secret, role, is_active, failed_login_attempts, must_change_password, password_changed_at, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?) RETURNING id`),
+		username, hash, displayName, nullableTrimmed(r.Manager), nullableTrimmed(r.Supervisor), nullableTrimmed(r.CPF), nullableTrimmed(r.Filial), nullableTrimmed(r.Email), nullableTrimmed(r.Phone), r.MFAEnabled, nullableTrimmed(r.MFASecret), role, isActive, now, now, now,
 	).Scan(&id)
 	if err != nil {
 		return 0, err
@@ -739,7 +759,7 @@ func (s *Store) ListSubordinatesBySupervisor(ctx context.Context, supervisor str
 	}
 	rows, err := s.DB.QueryContext(
 		ctx,
-		s.bind(`SELECT id, username, password_hash, full_name, manager, supervisor, cpf, branch, email, phone, mfa_enabled, mfa_secret, role, is_active, failed_login_attempts, locked_until, last_login_at, updated_at, created_at
+		s.bind(`SELECT id, username, password_hash, full_name, manager, supervisor, cpf, branch, email, phone, mfa_enabled, mfa_secret, role, is_active, failed_login_attempts, locked_until, last_login_at, must_change_password, password_changed_at, temp_password_issued_at, updated_at, created_at
 		FROM users
 		WHERE LOWER(TRIM(COALESCE(supervisor,''))) = LOWER(TRIM(?))
 		ORDER BY id ASC
@@ -756,7 +776,7 @@ func (s *Store) ListSubordinatesBySupervisor(ctx context.Context, supervisor str
 		var r AppUserRecord
 		if err := rows.Scan(
 			&r.ID, &r.Username, &r.PasswordHash, &r.DisplayName, &r.Manager, &r.Supervisor, &r.CPF, &r.Filial, &r.Email, &r.Phone, &r.MFAEnabled, &r.MFASecret, &r.Role, &r.IsActive,
-			&r.FailedLoginAttempts, &r.LockedUntil, &r.LastLoginAt, &r.UpdatedAt, &r.CreatedAt,
+			&r.FailedLoginAttempts, &r.LockedUntil, &r.LastLoginAt, &r.MustChangePassword, &r.PasswordChangedAt, &r.TempPasswordIssuedAt, &r.UpdatedAt, &r.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -800,6 +820,229 @@ func (s *Store) RegisterAppUserLoginSuccess(ctx context.Context, id int64) error
 		now, now, id,
 	)
 	return err
+}
+
+func (s *Store) GetAppSetting(ctx context.Context, key string) (string, bool, error) {
+	k := strings.TrimSpace(key)
+	if k == "" {
+		return "", false, fmt.Errorf("key vazia")
+	}
+	var value sql.NullString
+	err := s.DB.QueryRowContext(ctx, s.bind("SELECT value FROM app_settings WHERE key=?"), k).Scan(&value)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	if !value.Valid {
+		return "", true, nil
+	}
+	return value.String, true, nil
+}
+
+func (s *Store) SetAppSetting(ctx context.Context, key, value string) error {
+	k := strings.TrimSpace(key)
+	if k == "" {
+		return fmt.Errorf("key vazia")
+	}
+	now := formatDateTimeUTCMinus3(nowUTCMinus3())
+	if s.driver == "pgx" {
+		_, err := s.DB.ExecContext(ctx, s.bind(`
+INSERT INTO app_settings (key, value, updated_at)
+VALUES (?, ?, ?)
+ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=EXCLUDED.updated_at
+`), k, value, now)
+		return err
+	}
+	_, err := s.DB.ExecContext(ctx, s.bind(`
+INSERT INTO app_settings (key, value, updated_at)
+VALUES (?, ?, ?)
+ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
+`), k, value, now)
+	return err
+}
+
+func (s *Store) IsPasswordPolicyEnabled(ctx context.Context) (bool, error) {
+	raw, found, err := s.GetAppSetting(ctx, "password_policy_enabled")
+	if err != nil {
+		return false, err
+	}
+	if !found {
+		return false, nil
+	}
+	return parseBoolSetting(raw), nil
+}
+
+func (s *Store) SetPasswordPolicyEnabled(ctx context.Context, enabled bool) error {
+	if enabled {
+		return s.SetAppSetting(ctx, "password_policy_enabled", "1")
+	}
+	return s.SetAppSetting(ctx, "password_policy_enabled", "0")
+}
+
+func (s *Store) CountUsersMustChangePassword(ctx context.Context) (int64, error) {
+	var total int64
+	if err := s.DB.QueryRowContext(ctx, s.bind("SELECT COUNT(1) FROM users WHERE is_active=1 AND must_change_password=1")).Scan(&total); err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
+func (s *Store) ForceAllActiveUsersTemporaryPassword(ctx context.Context) (int64, error) {
+	now := formatDateTimeUTCMinus3(nowUTCMinus3())
+	res, err := s.DB.ExecContext(ctx, s.bind(`UPDATE users
+SET must_change_password=1,
+    temp_password_issued_at=?,
+    updated_at=?
+WHERE is_active=1`), now, now)
+	if err != nil {
+		return 0, err
+	}
+	rows, _ := res.RowsAffected()
+	return rows, nil
+}
+
+func (s *Store) IsUserRequiredToChangePassword(ctx context.Context, userID int64) (bool, error) {
+	if userID <= 0 {
+		return false, nil
+	}
+	enabled, err := s.IsPasswordPolicyEnabled(ctx)
+	if err != nil || !enabled {
+		return false, err
+	}
+	var must int64
+	if err := s.DB.QueryRowContext(ctx, s.bind("SELECT COALESCE(must_change_password,0) FROM users WHERE id=?"), userID).Scan(&must); err != nil {
+		return false, err
+	}
+	return must == 1, nil
+}
+
+func (s *Store) ChangeOwnPassword(ctx context.Context, userID int64, newPassword string) error {
+	if userID <= 0 {
+		return fmt.Errorf("id invalido")
+	}
+	if err := validateStrongPassword(newPassword); err != nil {
+		return fmt.Errorf("nova senha invalida: %w", err)
+	}
+	hash, err := HashPassword(newPassword)
+	if err != nil {
+		return err
+	}
+	now := formatDateTimeUTCMinus3(nowUTCMinus3())
+	_, err = s.DB.ExecContext(ctx, s.bind(`UPDATE users
+SET password_hash=?,
+    must_change_password=0,
+    password_changed_at=?,
+    failed_login_attempts=0,
+    locked_until=NULL,
+    updated_at=?
+WHERE id=?`), hash, now, now, userID)
+	return err
+}
+
+func (s *Store) ListAppUsersForPasswordPolicy(ctx context.Context, f AppUserPolicyFilter) ([]AppUserRecord, int64, error) {
+	limit := f.Limit
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	offset := f.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	likeOp := "LIKE"
+	if s.driver == "pgx" {
+		likeOp = "ILIKE"
+	}
+	where := []string{"1=1"}
+	args := make([]any, 0, 12)
+	if q := strings.TrimSpace(f.Query); q != "" {
+		like := "%" + q + "%"
+		where = append(where, `(CAST(id AS TEXT)=? OR COALESCE(username,'') `+likeOp+` ? OR COALESCE(full_name,'') `+likeOp+` ? OR COALESCE(cpf,'') `+likeOp+` ? OR COALESCE(branch,'') `+likeOp+` ? OR COALESCE(email,'') `+likeOp+` ?)`)
+		args = append(args, q, like, like, like, like, like)
+	}
+	if role := strings.TrimSpace(f.Role); role != "" {
+		where = append(where, "COALESCE(role,'')=?")
+		args = append(args, role)
+	}
+	if branch := strings.TrimSpace(f.Branch); branch != "" {
+		where = append(where, "COALESCE(branch,'')=?")
+		args = append(args, branch)
+	}
+	if active := strings.TrimSpace(strings.ToLower(f.IsActive)); active == "1" || active == "0" {
+		where = append(where, "COALESCE(is_active,0)=?")
+		args = append(args, active)
+	}
+	if must := strings.TrimSpace(strings.ToLower(f.MustChangeOnly)); must == "1" || must == "0" {
+		where = append(where, "COALESCE(must_change_password,0)=?")
+		args = append(args, must)
+	}
+	whereSQL := strings.Join(where, " AND ")
+	var total int64
+	countArgs := append([]any{}, args...)
+	if err := s.DB.QueryRowContext(ctx, s.bind("SELECT COUNT(1) FROM users WHERE "+whereSQL), countArgs...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	query := `SELECT id, username, password_hash, full_name, manager, supervisor, cpf, branch, email, phone, mfa_enabled, mfa_secret, role, is_active, failed_login_attempts, locked_until, last_login_at, must_change_password, password_changed_at, temp_password_issued_at, updated_at, created_at
+FROM users
+WHERE ` + whereSQL + `
+ORDER BY id ASC
+LIMIT ? OFFSET ?`
+	args = append(args, limit, offset)
+	rows, err := s.DB.QueryContext(ctx, s.bind(query), args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := make([]AppUserRecord, 0, limit)
+	for rows.Next() {
+		var r AppUserRecord
+		if err := rows.Scan(
+			&r.ID, &r.Username, &r.PasswordHash, &r.DisplayName, &r.Manager, &r.Supervisor, &r.CPF, &r.Filial, &r.Email, &r.Phone, &r.MFAEnabled, &r.MFASecret, &r.Role, &r.IsActive,
+			&r.FailedLoginAttempts, &r.LockedUntil, &r.LastLoginAt, &r.MustChangePassword, &r.PasswordChangedAt, &r.TempPasswordIssuedAt, &r.UpdatedAt, &r.CreatedAt,
+		); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, r)
+	}
+	return out, total, rows.Err()
+}
+
+func (s *Store) ForceTemporaryPasswordsByIDs(ctx context.Context, ids []int64) (int64, error) {
+	clean := make([]int64, 0, len(ids))
+	seen := map[int64]struct{}{}
+	for _, id := range ids {
+		if id <= 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		clean = append(clean, id)
+	}
+	if len(clean) == 0 {
+		return 0, nil
+	}
+	now := formatDateTimeUTCMinus3(nowUTCMinus3())
+	ph := make([]string, 0, len(clean))
+	args := make([]any, 0, len(clean)+2)
+	args = append(args, now, now)
+	for _, id := range clean {
+		ph = append(ph, "?")
+		args = append(args, id)
+	}
+	sqlStmt := `UPDATE users
+SET must_change_password=1,
+    temp_password_issued_at=?,
+    updated_at=?
+WHERE id IN (` + strings.Join(ph, ",") + `) AND is_active=1`
+	res, err := s.DB.ExecContext(ctx, s.bind(sqlStmt), args...)
+	if err != nil {
+		return 0, err
+	}
+	rows, _ := res.RowsAffected()
+	return rows, nil
 }
 
 func nullableTrimmed(in sql.NullString) any {

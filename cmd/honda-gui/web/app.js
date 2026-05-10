@@ -49,6 +49,12 @@
     let sellerHomeLoaded = false;
     let lastStatusFullText = "Status: Pronto";
     let authRedirectInProgress = false;
+    let passwordChangeRequired = false;
+    let passwordPolicyUsers = [];
+    let passwordPolicySelectedIDs = new Set();
+    let passwordPolicyOffset = 0;
+    let passwordPolicyLimit = 50;
+    let passwordPolicyTotal = 0;
 
     function getCookieValue(name) {
       const target = String(name || "").trim();
@@ -422,8 +428,10 @@
     function applyRolePermissions(){
       const appUsersTab = document.querySelector("[data-config-tab='appusers']");
       const dbTab = document.querySelector("[data-config-tab='database']");
+      const passwordPolicyTab = document.querySelector("[data-config-tab='password_policy']");
       if (appUsersTab) appUsersTab.style.display = canAccessConfigTab("appusers") ? "" : "none";
       if (dbTab) dbTab.style.display = canAccessConfigTab("database") ? "" : "none";
+      if (passwordPolicyTab) passwordPolicyTab.style.display = canAccessConfigTab("password_policy") ? "" : "none";
       const navDashboard = document.getElementById("nav-dashboard");
       const navReservas = document.getElementById("nav-reservas");
       const navMonitor = document.getElementById("nav-monitor");
@@ -1088,6 +1096,7 @@
       const produtos = document.getElementById("config-produtos");
       const audit = document.getElementById("config-audit");
       const database = document.getElementById("config-database");
+      const passwordPolicy = document.getElementById("config-password_policy");
       if (appusers) appusers.classList.toggle("hidden", section !== "appusers");
       if (rbac) {
         rbac.classList.toggle("hidden", section !== "rbac");
@@ -1104,6 +1113,10 @@
         if (section === "audit") loadAuditLogs();
       }
       if (database) database.classList.toggle("hidden", section !== "database");
+      if (passwordPolicy) {
+        passwordPolicy.classList.toggle("hidden", section !== "password_policy");
+        if (section === "password_policy") loadPasswordPolicy();
+      }
 
       const tabs = document.querySelectorAll("[data-config-tab]");
       for (const tab of tabs) {
@@ -1123,6 +1136,9 @@
       }
       if (section === "active_groups" && gruposAtivosRows.length === 0) {
         searchGruposAtivos();
+      }
+      if (section === "password_policy") {
+        loadPasswordPolicy();
       }
     }
 
@@ -1413,10 +1429,14 @@
       currentUserName = String(data.full_name || data.username || "");
       currentUserCPF = String(data.cpf || "");
       currentUserFilial = String(data.branch || data.filial || "");
+      passwordChangeRequired = !!data.password_change_required;
       sellerHomeLoaded = false;
       const hello = document.querySelector(".user-chip span:last-child");
       if (hello) hello.textContent = "Olá, " + String(data.full_name || data.username || "Usuário");
       applyRolePermissions();
+      if (passwordChangeRequired) {
+        openPasswordChangeModal();
+      }
       return true;
     }
 
@@ -1471,12 +1491,17 @@
       currentUserName = String(data.full_name || data.username || "");
       currentUserCPF = String(data.cpf || "");
       currentUserFilial = String(data.branch || data.filial || "");
+      passwordChangeRequired = !!data.password_change_required;
       sellerHomeLoaded = false;
       const hello = document.querySelector(".user-chip span:last-child");
       if (hello) hello.textContent = "OlÃ¡, " + String(data.full_name || data.username || "UsuÃ¡rio");
       applyRolePermissions();
       showLoginOverlay(false);
       setStatus("Login realizado");
+      if (passwordChangeRequired) {
+        openPasswordChangeModal();
+        return;
+      }
       if (!appBootstrapped) {
         appBootstrapped = true;
         const firstPage = ["dashboard", "reservas", "config", "monitor", "logs"].find((p) => canAccessSection(p)) || "reservas";
@@ -1526,6 +1551,7 @@
       currentUserName = String(data.full_name || data.username || "");
       currentUserCPF = String(data.cpf || "");
       currentUserFilial = String(data.branch || data.filial || "");
+      passwordChangeRequired = !!data.password_change_required;
       const hello = document.querySelector(".user-chip span:last-child");
       if (hello) hello.textContent = "OlÃ¡, " + String(data.full_name || data.username || "UsuÃ¡rio");
       applyRolePermissions();
@@ -1533,6 +1559,10 @@
       document.getElementById("loginMainFields").classList.remove("hidden");
       document.getElementById("mfaChallengeFields").classList.add("hidden");
       setStatus("Login realizado com MFA");
+      if (passwordChangeRequired) {
+        openPasswordChangeModal();
+        return;
+      }
       if (!appBootstrapped) {
         appBootstrapped = true;
         const firstPage = ["dashboard", "reservas", "config", "monitor", "logs"].find((p) => canAccessSection(p)) || "reservas";
@@ -1654,6 +1684,242 @@
       try {
         await fetch("/api/app/logout?_cb=" + Date.now(), {method: "POST"});
       } catch(err) {}
+    }
+
+    async function loadPasswordPolicy(){
+      const statusInput = document.getElementById("password_policy_status");
+      const enabledInput = document.getElementById("password_policy_enabled");
+      if (!statusInput || !enabledInput) return;
+      statusInput.value = "Carregando...";
+      try {
+        const res = await fetch("/api/security/password-policy?_cb=" + Date.now());
+        const data = await res.json();
+        if (!res.ok || data.ok === false) throw new Error(data.message || "Falha ao carregar política");
+        enabledInput.checked = !!data.enabled;
+        statusInput.value = `Política: ${data.enabled ? "ATIVA" : "INATIVA"} | Pendentes: ${Number(data.pending || 0)}`;
+        loadPasswordPolicyUsers(0);
+      } catch (err) {
+        statusInput.value = "Falha ao carregar política";
+        setStatus(err.message || "Erro ao carregar política de senhas");
+      }
+    }
+
+    function updatePasswordPolicySelectionStatus(){
+      const el = document.getElementById("password_policy_selection_status");
+      if (!el) return;
+      el.value = `${passwordPolicySelectedIDs.size} selecionados`;
+    }
+
+    function renderPasswordPolicyUsers(){
+      const tbody = document.getElementById("password_policy_users_tbody");
+      if (!tbody) return;
+      if (!passwordPolicyUsers.length) {
+        tbody.innerHTML = `<tr><td colspan="10">Sem resultados.</td></tr>`;
+        updatePasswordPolicySelectionStatus();
+        return;
+      }
+      tbody.innerHTML = passwordPolicyUsers.map((u) => {
+        const id = Number(u.id || 0);
+        const checked = passwordPolicySelectedIDs.has(id) ? "checked" : "";
+        const active = u.is_active ? "Sim" : "Não";
+        const must = u.must_change_password ? "Sim" : "Não";
+        return `<tr>
+          <td><input type="checkbox" ${checked} onchange="togglePasswordPolicyUserSelection(${id}, this.checked)" /></td>
+          <td>${id}</td>
+          <td>${escapeHtml(u.username || "")}</td>
+          <td>${escapeHtml(u.full_name || "")}</td>
+          <td>${escapeHtml(u.cpf || "")}</td>
+          <td>${escapeHtml(u.branch || "")}</td>
+          <td>${escapeHtml(u.role || "")}</td>
+          <td>${active}</td>
+          <td>${must}</td>
+          <td>${escapeHtml(u.last_login_at || "-")}</td>
+        </tr>`;
+      }).join("");
+      updatePasswordPolicySelectionStatus();
+    }
+
+    async function loadPasswordPolicyUsers(offset){
+      if (typeof offset === "number") passwordPolicyOffset = Math.max(0, offset);
+      const q = (document.getElementById("pp_search")?.value || "").trim();
+      const role = (document.getElementById("pp_role")?.value || "").trim();
+      const branch = (document.getElementById("pp_branch")?.value || "").trim();
+      const isActive = (document.getElementById("pp_is_active")?.value || "").trim();
+      const mustChange = (document.getElementById("pp_must_change")?.value || "").trim();
+      const params = new URLSearchParams({
+        offset: String(passwordPolicyOffset),
+        limit: String(passwordPolicyLimit),
+        q,
+        role,
+        branch,
+        is_active: isActive,
+        must_change: mustChange
+      });
+      try {
+        const res = await fetch("/api/security/password-policy/users?" + params.toString());
+        const data = await res.json();
+        if (!res.ok || data.ok === false) throw new Error(data.message || "Falha ao carregar usuários");
+        passwordPolicyUsers = data.items || [];
+        passwordPolicyTotal = Number(data.total || 0);
+        renderPasswordPolicyUsers();
+        setStatus(`Lista carregada (${passwordPolicyUsers.length}/${passwordPolicyTotal})`);
+      } catch (err) {
+        setStatus(err.message || "Erro ao carregar usuários da política");
+      }
+    }
+
+    function togglePasswordPolicyUserSelection(id, checked){
+      const n = Number(id);
+      if (!n) return;
+      if (checked) passwordPolicySelectedIDs.add(n);
+      else passwordPolicySelectedIDs.delete(n);
+      updatePasswordPolicySelectionStatus();
+    }
+
+    function togglePasswordPolicySelectAllPage(){
+      const pageIDs = passwordPolicyUsers.map((u) => Number(u.id || 0)).filter(Boolean);
+      if (!pageIDs.length) return;
+      const allSelected = pageIDs.every((id) => passwordPolicySelectedIDs.has(id));
+      pageIDs.forEach((id) => {
+        if (allSelected) passwordPolicySelectedIDs.delete(id);
+        else passwordPolicySelectedIDs.add(id);
+      });
+      renderPasswordPolicyUsers();
+    }
+
+    async function selectAllFilteredPasswordPolicyUsers(){
+      const q = (document.getElementById("pp_search")?.value || "").trim();
+      const role = (document.getElementById("pp_role")?.value || "").trim();
+      const branch = (document.getElementById("pp_branch")?.value || "").trim();
+      const isActive = (document.getElementById("pp_is_active")?.value || "").trim();
+      const mustChange = (document.getElementById("pp_must_change")?.value || "").trim();
+      const params = new URLSearchParams({
+        offset: "0",
+        limit: "500",
+        q,
+        role,
+        branch,
+        is_active: isActive,
+        must_change: mustChange
+      });
+      try {
+        const res = await fetch("/api/security/password-policy/users?" + params.toString());
+        const data = await res.json();
+        if (!res.ok || data.ok === false) throw new Error(data.message || "Falha ao buscar filtrados");
+        (data.items || []).forEach((u) => {
+          const id = Number(u.id || 0);
+          if (id) passwordPolicySelectedIDs.add(id);
+        });
+        renderPasswordPolicyUsers();
+        setStatus("Usuários filtrados adicionados à seleção");
+      } catch (err) {
+        setStatus(err.message || "Erro ao selecionar filtrados");
+      }
+    }
+
+    async function forceSelectedTemporaryPasswords(){
+      if (!passwordPolicySelectedIDs.size) {
+        setStatus("Selecione pelo menos 1 usuário.");
+        return;
+      }
+      const ok = confirm(`Aplicar senha temporária para ${passwordPolicySelectedIDs.size} usuário(s) selecionado(s)?`);
+      if (!ok) return;
+      try {
+        const res = await fetch("/api/security/password-policy/force-selected", {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({ids: Array.from(passwordPolicySelectedIDs)})
+        });
+        const data = await res.json();
+        if (!res.ok || data.ok === false) throw new Error(data.message || "Falha ao aplicar selecionados");
+        setStatus(data.message || "Ação aplicada");
+        await loadPasswordPolicy();
+        await loadPasswordPolicyUsers(passwordPolicyOffset);
+      } catch (err) {
+        setStatus(err.message || "Erro ao aplicar ação aos selecionados");
+      }
+    }
+
+    async function savePasswordPolicy(){
+      const enabledInput = document.getElementById("password_policy_enabled");
+      if (!enabledInput) return;
+      const enabled = !!enabledInput.checked;
+      try {
+        const res = await fetch("/api/security/password-policy", {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({enabled})
+        });
+        const data = await res.json();
+        if (!res.ok || data.ok === false) throw new Error(data.message || "Falha ao salvar política");
+        setStatus(data.message || "Política atualizada");
+        loadPasswordPolicy();
+      } catch (err) {
+        setStatus(err.message || "Erro ao salvar política de senhas");
+      }
+    }
+
+    async function forceAllTemporaryPasswords(){
+      const ok = confirm("Confirma marcar todos os usuários ativos para troca obrigatória de senha no próximo login?");
+      if (!ok) return;
+      try {
+        const res = await fetch("/api/security/password-policy/force-all", {method: "POST"});
+        const data = await res.json();
+        if (!res.ok || data.ok === false) throw new Error(data.message || "Falha ao aplicar ação em massa");
+        setStatus(data.message || "Ação aplicada");
+        loadPasswordPolicy();
+      } catch (err) {
+        setStatus(err.message || "Erro ao tornar senhas temporárias");
+      }
+    }
+
+    function openPasswordChangeModal(){
+      const modal = document.getElementById("passwordChangeModal");
+      if (!modal) return;
+      const errEl = document.getElementById("password_change_error");
+      const n = document.getElementById("password_change_new");
+      const c = document.getElementById("password_change_confirm");
+      if (errEl) errEl.textContent = "";
+      if (n) n.value = "";
+      if (c) c.value = "";
+      modal.classList.remove("hidden");
+      if (n) n.focus();
+    }
+
+    function closePasswordChangeModal(ev){
+      if (ev && ev.target && ev.target.id !== "passwordChangeModal") return;
+      if (passwordChangeRequired) return;
+      const modal = document.getElementById("passwordChangeModal");
+      if (modal) modal.classList.add("hidden");
+    }
+
+    async function submitPasswordChange(){
+      const errEl = document.getElementById("password_change_error");
+      const n = (document.getElementById("password_change_new")?.value || "").trim();
+      const c = (document.getElementById("password_change_confirm")?.value || "").trim();
+      if (errEl) errEl.textContent = "";
+      if (!n || !c) {
+        if (errEl) errEl.textContent = "Preencha os dois campos.";
+        return;
+      }
+      if (n !== c) {
+        if (errEl) errEl.textContent = "As senhas não conferem.";
+        return;
+      }
+      try {
+        const res = await fetch("/api/app/password/change", {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({new_password: n})
+        });
+        const data = await res.json();
+        if (!res.ok || data.ok === false) throw new Error(data.message || "Falha ao atualizar senha");
+        passwordChangeRequired = false;
+        document.getElementById("passwordChangeModal")?.classList.add("hidden");
+        setStatus(data.message || "Senha atualizada");
+      } catch (err) {
+        if (errEl) errEl.textContent = err.message || "Erro ao atualizar senha";
+      }
     }
 
     function maskToken(token){
@@ -4916,6 +5182,7 @@ function canAccessConfigTab(tabName){
     if (tab === "assemblies") return hasAnyPermission(["config:assemblies", "configs:manage"]);
     if (tab === "models") return hasAnyPermission(["config:models", "configs:manage"]);
     if (tab === "produtos") return hasAnyPermission(["config:produtos", "configs:manage"]);
+    if (tab === "password_policy") return hasPermission("config:password_policy");
     return false;
 }
 
@@ -5012,6 +5279,7 @@ const permissionDescriptions = {
     "config:rbac": "Acesso à matriz de permissões",
     "config:audit": "Acesso à auditoria",
     "config:database": "Acesso à configuração de banco",
+    "config:password_policy": "Acesso à configuração de política de senhas",
     "config:idsgrupos": "Acesso à configuração de IDs de grupos",
     "config:active_groups": "Acesso à configuração de grupos ativos",
     "config:assemblies": "Acesso à configuração de assembleias",
