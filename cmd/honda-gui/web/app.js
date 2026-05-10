@@ -813,12 +813,13 @@
       const sugestao = document.getElementById("seller_link_sugestao");
       const propostas = document.getElementById("seller_link_propostas");
       if (!sugestao || !propostas) return;
-      const blocked = isVendedorRole() && String(currentUserFilial || "").trim().toUpperCase() !== "TER";
+      const filial = String(currentUserFilial || "").trim().toUpperCase();
+      const blocked = !isAdminRole() && filial !== "TER";
       for (const el of [sugestao, propostas]) {
         el.classList.toggle("disabled", blocked);
         if (blocked) {
           el.setAttribute("aria-disabled", "true");
-          el.setAttribute("title", "Disponível apenas para vendedor da filial TER");
+          el.setAttribute("title", "Disponível apenas para usuários da filial TER");
         } else {
           el.removeAttribute("aria-disabled");
           el.removeAttribute("title");
