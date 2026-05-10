@@ -44,7 +44,7 @@
     let currentUserName = "";
     let currentUserCPF = "";
     let currentUserFilial = "";
-    let currentReserveSection = "solicitacoes";
+    let currentReserveSection = localStorage.getItem("last_reserve_section") || "solicitacoes";
     let dashboardLoaded = false;
     let sellerHomeLoaded = false;
     let lastStatusFullText = "Status: Pronto";
@@ -500,6 +500,9 @@
       for (const link of links) {
         link.classList.toggle("active", link.getAttribute("data-page-link") === page);
       }
+      try {
+        localStorage.setItem("last_page", page);
+      } catch(_) {}
       if (page === "reservas") {
         openReserveSection(isVendedorRole() ? "home" : (currentReserveSection || "solicitacoes"));
       }
@@ -1031,6 +1034,9 @@
       }
 
       currentReserveSection = section;
+      try {
+        localStorage.setItem("last_reserve_section", section);
+      } catch(_) {}
 
       if (section === "home") {
         setSellerHomeDefaultDates();
@@ -4815,17 +4821,20 @@
     applySidebarState();
     initAllMasks();
     (async () => {
-      showLoginOverlay(true);
       const hasSession = await ensureAppSession();
       if (hasSession) {
         showLoginOverlay(false);
         if (!appBootstrapped) {
           appBootstrapped = true;
-          openPage(isVendedorRole() ? "reservas" : "dashboard");
+          const savedPage = String(localStorage.getItem("last_page") || "").trim();
+          const preferredPage = isVendedorRole() ? "reservas" : (savedPage || "dashboard");
+          const targetPage = canAccessSection(preferredPage) ? preferredPage : (isVendedorRole() ? "reservas" : "dashboard");
+          openPage(targetPage);
           await loadConfig();
         }
         return;
       }
+      showLoginOverlay(true);
       isAuthenticated = false;
       currentUserRole = "";
       window.currentUserRole = "";
