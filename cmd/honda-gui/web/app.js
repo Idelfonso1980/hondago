@@ -384,7 +384,7 @@
       return normalizeRoleValue(currentUserRole) === "admin";
     }
     function canAccessReserveHome(){
-      return isVendedorRole() || isAdminRole();
+      return canAccessReserveTab("home");
     }
     function applyReserveTabOrder(){
       const container = document.querySelector(".config-sections");
@@ -957,7 +957,8 @@
         section = fallback || "solicitacoes";
       }
       if (!canAccessReserveHome() && section === "home") {
-        section = "solicitacoes";
+        const fallbackNoHome = ["solicitacoes", "minhas", "solicitar", "reserved", "mensagens", "config"].find((k) => canAccessReserveTab(k));
+        section = fallbackNoHome || "solicitacoes";
       }
 
       if (home) home.classList.toggle("hidden", section !== "home");
