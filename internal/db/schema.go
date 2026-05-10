@@ -295,6 +295,9 @@ func (s *Store) EnsureLegacySchema(ctx context.Context) error {
 		if err := s.ensurePostgresSchemaBootstrap(ctx); err != nil {
 			return err
 		}
+		if err := s.ensurePostgresDefaultRolePermissions(ctx); err != nil {
+			return err
+		}
 		return s.ensurePostgresIDIntegrity(ctx)
 	}
 
@@ -609,31 +612,6 @@ func (s *Store) ensurePostgresSchemaBootstrap(ctx context.Context) error {
 			(1,'reservas:home'), (1,'reservas:solicitacoes'), (1,'reservas:minhas'), (1,'reservas:solicitar'), (1,'reservas:reservadas'), (1,'reservas:mensagens'), (1,'reservas:config'),
 			(1,'config:users'), (1,'config:appusers'), (1,'config:rbac'), (1,'config:audit'), (1,'config:database'), (1,'config:idsgrupos'), (1,'config:active_groups'), (1,'config:assemblies'), (1,'config:models'), (1,'config:produtos')
 		ON CONFLICT DO NOTHING`,
-		`INSERT INTO role_permissions (role_id, permission_key) VALUES
-			(2,'dashboard:read'), (2,'solicitacoes:read'), (2,'solicitacoes:create'), (2,'solicitacoes:edit'), (2,'cotas:reserve'),
-			(2,'nav:dashboard'), (2,'nav:reservas'),
-			(2,'reservas:solicitacoes'), (2,'reservas:minhas'), (2,'reservas:solicitar'), (2,'reservas:reservadas')
-		ON CONFLICT DO NOTHING`,
-		`INSERT INTO role_permissions (role_id, permission_key) VALUES
-			(3,'dashboard:read'), (3,'solicitacoes:read'), (3,'solicitacoes:create'), (3,'solicitacoes:edit'), (3,'cotas:reserve'),
-			(3,'nav:reservas'),
-			(3,'reservas:home'), (3,'reservas:minhas'), (3,'reservas:solicitar')
-		ON CONFLICT DO NOTHING`,
-		`INSERT INTO role_permissions (role_id, permission_key) VALUES
-			(4,'dashboard:read'), (4,'solicitacoes:read'),
-			(4,'nav:dashboard'), (4,'nav:reservas'),
-			(4,'reservas:solicitacoes'), (4,'reservas:minhas')
-		ON CONFLICT DO NOTHING`,
-		`INSERT INTO role_permissions (role_id, permission_key) VALUES
-			(5,'dashboard:read'), (5,'solicitacoes:read'),
-			(5,'nav:dashboard'), (5,'nav:reservas'),
-			(5,'reservas:home'), (5,'reservas:solicitacoes'), (5,'reservas:minhas')
-		ON CONFLICT DO NOTHING`,
-		`INSERT INTO role_permissions (role_id, permission_key) VALUES
-			(6,'dashboard:read'), (6,'solicitacoes:read'),
-			(6,'nav:dashboard'), (6,'nav:reservas'),
-			(6,'reservas:home'), (6,'reservas:solicitacoes'), (6,'reservas:minhas')
-		ON CONFLICT DO NOTHING`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.DB.ExecContext(ctx, stmt); err != nil {
@@ -641,6 +619,45 @@ func (s *Store) ensurePostgresSchemaBootstrap(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (s *Store) ensurePostgresDefaultRolePermissions(ctx context.Context) error {
+	if s == nil || s.driver != "pgx" {
+		return nil
+	}
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	vendedorPerms := []string{
+		"dashboard:read", "solicitacoes:read", "solicitacoes:create", "solicitacoes:edit", "cotas:reserve",
+		"nav:reservas",
+		"reservas:home", "reservas:minhas", "reservas:solicitar",
+	}
+	seedRolePermsIfEmpty := func(roleID int64, perms []string) error {
+		var count int64
+		if err := tx.QueryRowContext(ctx, "SELECT COUNT(1) FROM role_permissions WHERE role_id = $1", roleID).Scan(&count); err != nil {
+			return err
+		}
+		if count > 0 {
+			return nil
+		}
+		for _, p := range perms {
+			if _, err := tx.ExecContext(ctx, "INSERT INTO role_permissions (role_id, permission_key) VALUES ($1, $2) ON CONFLICT DO NOTHING", roleID, p); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	for _, roleID := range []int64{2, 3, 4, 5, 6} {
+		if err := seedRolePermsIfEmpty(roleID, vendedorPerms); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *Store) ensurePostgresIDIntegrity(ctx context.Context) error {

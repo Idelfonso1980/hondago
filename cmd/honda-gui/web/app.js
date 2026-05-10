@@ -1398,6 +1398,7 @@
         return false;
       }
       isAuthenticated = true;
+      dashboardLoaded = false;
       currentUserRole = normalizeRoleValue(data.role || "");
       window.currentUserRole = currentUserRole;
       window.userPermissions = data.permissions || [];
@@ -1455,6 +1456,7 @@
       }
 
       isAuthenticated = true;
+      dashboardLoaded = false;
       currentUserRole = normalizeRoleValue(data.role || "");
       window.currentUserRole = currentUserRole;
       window.userPermissions = data.permissions || [];
@@ -1505,6 +1507,7 @@
 
       // Sucesso total
       isAuthenticated = true;
+      dashboardLoaded = false;
       currentUserRole = normalizeRoleValue(data.role || "");
       window.currentUserRole = currentUserRole;
       window.userPermissions = data.permissions || [];
@@ -1614,6 +1617,7 @@
 
     async function logoutAppUser(){
       isAuthenticated = false;
+      dashboardLoaded = false;
       currentUserRole = "";
       sellerHomeLoaded = false;
       mfaTempToken = "";
