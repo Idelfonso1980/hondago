@@ -383,6 +383,15 @@
     function isAdminRole(){
       return normalizeRoleValue(currentUserRole) === "admin";
     }
+    function isSupervisorRoleUI(){
+      return normalizeRoleValue(currentUserRole) === "supervisor";
+    }
+    function isGerenteRoleUI(){
+      return normalizeRoleValue(currentUserRole) === "gerente";
+    }
+    function hasLockedDashboardBranch(){
+      return isSupervisorRoleUI() || isGerenteRoleUI();
+    }
     function canAccessReserveHome(){
       return canAccessReserveTab("home");
     }
@@ -630,14 +639,20 @@
       if (!sel) return;
       const current = sel.value || "";
       const items = Array.isArray(list) ? list : [];
-      let html = "<option value=\"\">Todas</option>";
+      let html = hasLockedDashboardBranch() ? "" : "<option value=\"\">Todas</option>";
       for (const f of items) {
         const v = String(f || "").trim();
         if (!v) continue;
         html += "<option value=\"" + escapeHtml(v) + "\">" + escapeHtml(v) + "</option>";
       }
       sel.innerHTML = html;
-      sel.value = current;
+      if (hasLockedDashboardBranch() && currentUserFilial) {
+        sel.value = String(currentUserFilial).trim();
+        sel.disabled = true;
+      } else {
+        sel.value = current;
+        sel.disabled = false;
+      }
     }
 
     function closeDashboardDetailsModal(ev){
@@ -879,7 +894,8 @@
       const params = new URLSearchParams();
       const from = (document.getElementById("dash_from")?.value || "").trim();
       const to = (document.getElementById("dash_to")?.value || "").trim();
-      const branch = (document.getElementById("dash_filial")?.value || "").trim();
+      const uiBranch = (document.getElementById("dash_filial")?.value || "").trim();
+      const branch = hasLockedDashboardBranch() ? String(currentUserFilial || "").trim() : uiBranch;
       if (branch) params.set("branch", branch);
       if (from) params.set("from", from);
       if (to) params.set("to", to);

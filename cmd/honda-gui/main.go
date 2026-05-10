@@ -2800,6 +2800,11 @@ func (a *app) handleSolicitacoesReservarBatch(w http.ResponseWriter, r *http.Req
 }
 
 func (a *app) handleDashboardSummary(w http.ResponseWriter, r *http.Request) {
+	sess, ok := a.currentSession(r)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, runResponse{OK: false, Message: "Nao autenticado"})
+		return
+	}
 	_, store, err := a.openStoreFromCurrentConfig()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
@@ -2812,7 +2817,6 @@ func (a *app) handleDashboardSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	filialSel := strings.TrimSpace(r.URL.Query().Get("branch"))
-	sess, _ := a.currentSession(r)
 	supervisorScope := ""
 	supervisorArgs := make([]any, 0)
 	if sess != nil && isSupervisorRole(sess.Role) {
@@ -2826,6 +2830,9 @@ func (a *app) handleDashboardSummary(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if sess != nil && isGerenteRole(sess.Role) && strings.TrimSpace(sess.branch) != "" {
+		filialSel = strings.TrimSpace(sess.branch)
+	}
+	if sess != nil && !strings.EqualFold(strings.TrimSpace(sess.Role), "admin") && !isSupervisorRole(sess.Role) && !isGerenteRole(sess.Role) && strings.TrimSpace(sess.branch) != "" {
 		filialSel = strings.TrimSpace(sess.branch)
 	}
 
@@ -3117,6 +3124,11 @@ WHERE `+prevWhere+`
 }
 
 func (a *app) handleDashboardDetails(w http.ResponseWriter, r *http.Request) {
+	sess, ok := a.currentSession(r)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, runResponse{OK: false, Message: "Nao autenticado"})
+		return
+	}
 	_, store, err := a.openStoreFromCurrentConfig()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
@@ -3131,7 +3143,6 @@ func (a *app) handleDashboardDetails(w http.ResponseWriter, r *http.Request) {
 	kind := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("kind")))
 	value := strings.TrimSpace(r.URL.Query().Get("value"))
 	filialSel := strings.TrimSpace(r.URL.Query().Get("branch"))
-	sess, _ := a.currentSession(r)
 	supervisorScope := ""
 	supervisorArgs := make([]any, 0)
 	if sess != nil && isSupervisorRole(sess.Role) {
@@ -3145,6 +3156,9 @@ func (a *app) handleDashboardDetails(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if sess != nil && isGerenteRole(sess.Role) && strings.TrimSpace(sess.branch) != "" {
+		filialSel = strings.TrimSpace(sess.branch)
+	}
+	if sess != nil && !strings.EqualFold(strings.TrimSpace(sess.Role), "admin") && !isSupervisorRole(sess.Role) && !isGerenteRole(sess.Role) && strings.TrimSpace(sess.branch) != "" {
 		filialSel = strings.TrimSpace(sess.branch)
 	}
 
