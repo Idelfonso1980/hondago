@@ -144,12 +144,12 @@ var criticalPermissionPolicy = map[string]string{
 	"/api/auth/user/delete":             "users:delete",
 	"/api/auth/user/login":              "users:edit",
 	"/api/auth/users/login":             "users:edit",
-	"/api/db/tables/create":             "configs:manage",
-	"/api/db/tables/clear":              "configs:manage",
-	"/api/db/tables/drop":               "configs:manage",
-	"/api/db/backup":                    "configs:manage",
-	"/api/db/restore":                   "configs:manage",
-	"/api/db/restore-capabilities":      "configs:manage",
+	"/api/db/tables/create":             "db:tables:create",
+	"/api/db/tables/clear":              "db:tables:clear",
+	"/api/db/tables/drop":               "db:tables:drop",
+	"/api/db/backup":                    "db:backup",
+	"/api/db/restore":                   "db:restore",
+	"/api/db/restore-capabilities":      "config:database",
 	"/api/rbac/matrix":                  "roles:manage",
 	"/api/rbac/update":                  "roles:manage",
 	"/api/audit/list":                   "audit:view",
@@ -1280,7 +1280,7 @@ func (a *app) handleAppSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) handleAppUsersSearch(w http.ResponseWriter, r *http.Request) {
-	if !a.requireAdmin(w, r) {
+	if !a.requirePermission(w, r, "users:read") {
 		return
 	}
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
@@ -1302,7 +1302,7 @@ func (a *app) handleAppUsersSearch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) handleAppUserGet(w http.ResponseWriter, r *http.Request) {
-	if !a.requireAdmin(w, r) {
+	if !a.requirePermission(w, r, "users:read") {
 		return
 	}
 	id, err := strconv.ParseInt(strings.TrimSpace(r.URL.Query().Get("id")), 10, 64)
@@ -1328,13 +1328,55 @@ func (a *app) handleAppUserGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) handleAppUserSave(w http.ResponseWriter, r *http.Request) {
-	if !a.requireAdmin(w, r) {
+	sess, ok := a.currentSession(r)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, runResponse{OK: false, Message: "Nao autenticado"})
 		return
 	}
+
 	var p appUserPayload
 	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
+	}
+
+	if p.ID > 0 {
+		if !a.requirePermission(w, r, "users:edit") {
+			return
+		}
+	} else {
+		if !a.requirePermission(w, r, "users:create") {
+			return
+		}
+	}
+
+	_, store, err := a.openStoreFromCurrentConfig()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	if p.ID > 0 {
+		target, err := store.GetAppUserByID(r.Context(), p.ID)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				writeErr(w, http.StatusNotFound, fmt.Errorf("usuario nao encontrado"))
+				return
+			}
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		targetUsername := strings.TrimSpace(target.Username)
+		sessionUsername := strings.TrimSpace(sess.Username)
+		isAdminSession := strings.EqualFold(strings.TrimSpace(sess.Role), "admin")
+		if isSuperUsuarioRole(sess.Role) && strings.EqualFold(targetUsername, sessionUsername) {
+			writeErr(w, http.StatusForbidden, fmt.Errorf("super_usuario nao pode editar o proprio usuario"))
+			return
+		}
+		if strings.EqualFold(targetUsername, "admin") && !isAdminSession {
+			writeErr(w, http.StatusForbidden, fmt.Errorf("apenas admin pode editar o usuario admin"))
+			return
+		}
 	}
 	rec := db.AppUserRecord{
 		ID:          p.ID,
@@ -1355,11 +1397,6 @@ func (a *app) handleAppUserSave(w http.ResponseWriter, r *http.Request) {
 	}
 	if p.IsActive {
 		rec.IsActive = 1
-	}
-	_, store, err := a.openStoreFromCurrentConfig()
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
 	}
 	newID, err := store.SaveAppUser(r.Context(), rec, p.Password)
 	if err != nil {
@@ -1395,6 +1432,11 @@ func (a *app) handleAppUserDelete(w http.ResponseWriter, r *http.Request) {
 	if !a.requirePermission(w, r, "users:delete") {
 		return
 	}
+	sess, ok := a.currentSession(r)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, runResponse{OK: false, Message: "Nao autenticado"})
+		return
+	}
 	id, err := strconv.ParseInt(strings.TrimSpace(r.URL.Query().Get("id")), 10, 64)
 	if err != nil || id <= 0 {
 		writeErr(w, http.StatusBadRequest, fmt.Errorf("id invalido"))
@@ -1403,6 +1445,26 @@ func (a *app) handleAppUserDelete(w http.ResponseWriter, r *http.Request) {
 	_, store, err := a.openStoreFromCurrentConfig()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	target, err := store.GetAppUserByID(r.Context(), id)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			writeErr(w, http.StatusNotFound, fmt.Errorf("usuario nao encontrado"))
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	targetUsername := strings.TrimSpace(target.Username)
+	sessionUsername := strings.TrimSpace(sess.Username)
+	isAdminSession := strings.EqualFold(strings.TrimSpace(sess.Role), "admin")
+	if strings.EqualFold(targetUsername, "admin") && !isAdminSession {
+		writeErr(w, http.StatusForbidden, fmt.Errorf("apenas admin pode remover o usuario admin"))
+		return
+	}
+	if isSuperUsuarioRole(sess.Role) && strings.EqualFold(targetUsername, sessionUsername) {
+		writeErr(w, http.StatusForbidden, fmt.Errorf("super_usuario nao pode remover o proprio usuario"))
 		return
 	}
 	if err := store.DeleteAppUser(r.Context(), id); err != nil {
@@ -1979,6 +2041,10 @@ func isSupervisorRole(role string) bool {
 
 func isGerenteRole(role string) bool {
 	return normalizeRoleLocal(role) == "gerente"
+}
+
+func isSuperUsuarioRole(role string) bool {
+	return normalizeRoleLocal(role) == "super_usuario"
 }
 
 func matchesSupervisorSubordinate(rec *db.SolicitacaoRecord, subordinates []db.AppUserRecord) bool {
@@ -2881,7 +2947,7 @@ func (a *app) handleDashboardSummary(w http.ResponseWriter, r *http.Request) {
 	if sess != nil && isGerenteRole(sess.Role) && strings.TrimSpace(sess.branch) != "" {
 		filialSel = strings.TrimSpace(sess.branch)
 	}
-	if sess != nil && !strings.EqualFold(strings.TrimSpace(sess.Role), "admin") && !isSupervisorRole(sess.Role) && !isGerenteRole(sess.Role) && strings.TrimSpace(sess.branch) != "" {
+	if sess != nil && !strings.EqualFold(strings.TrimSpace(sess.Role), "admin") && !isSuperUsuarioRole(sess.Role) && !isSupervisorRole(sess.Role) && !isGerenteRole(sess.Role) && strings.TrimSpace(sess.branch) != "" {
 		filialSel = strings.TrimSpace(sess.branch)
 	}
 
@@ -3195,7 +3261,7 @@ func (a *app) handleDashboardDetails(w http.ResponseWriter, r *http.Request) {
 	if sess != nil && isGerenteRole(sess.Role) && strings.TrimSpace(sess.branch) != "" {
 		filialSel = strings.TrimSpace(sess.branch)
 	}
-	if sess != nil && !strings.EqualFold(strings.TrimSpace(sess.Role), "admin") && !isSupervisorRole(sess.Role) && !isGerenteRole(sess.Role) && strings.TrimSpace(sess.branch) != "" {
+	if sess != nil && !strings.EqualFold(strings.TrimSpace(sess.Role), "admin") && !isSuperUsuarioRole(sess.Role) && !isSupervisorRole(sess.Role) && !isGerenteRole(sess.Role) && strings.TrimSpace(sess.branch) != "" {
 		filialSel = strings.TrimSpace(sess.branch)
 	}
 
@@ -4840,7 +4906,7 @@ func (a *app) handleGruposAtivosDeleteBatch(w http.ResponseWriter, r *http.Reque
 }
 
 func (a *app) handleDBTablesCreate(w http.ResponseWriter, r *http.Request) {
-	if !a.requireAdmin(w, r) {
+	if !a.requirePermission(w, r, "db:tables:create") {
 		return
 	}
 	cfg, store, err := a.openStoreFromCurrentConfig()
@@ -4865,7 +4931,7 @@ func (a *app) handleDBTablesCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) handleDBTablesClear(w http.ResponseWriter, r *http.Request) {
-	if !a.requireAdmin(w, r) {
+	if !a.requirePermission(w, r, "db:tables:clear") {
 		return
 	}
 	cfg, store, err := a.openStoreFromCurrentConfig()
@@ -4892,7 +4958,7 @@ func (a *app) handleDBTablesClear(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) handleDBTablesDrop(w http.ResponseWriter, r *http.Request) {
-	if !a.requireAdmin(w, r) {
+	if !a.requirePermission(w, r, "db:tables:drop") {
 		return
 	}
 	cfg, store, err := a.openStoreFromCurrentConfig()
@@ -4919,7 +4985,7 @@ func (a *app) handleDBTablesDrop(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) handleDBBackup(w http.ResponseWriter, r *http.Request) {
-	if !a.requireAdmin(w, r) {
+	if !a.requirePermission(w, r, "db:backup") {
 		return
 	}
 	cfg, store, err := a.openStoreFromCurrentConfig()
@@ -5083,7 +5149,7 @@ func runPgDump(ctx context.Context, bin string, fullArgs []string, pass string, 
 }
 
 func (a *app) handleDBRestore(w http.ResponseWriter, r *http.Request) {
-	if !a.requireAdmin(w, r) {
+	if !a.requirePermission(w, r, "db:restore") {
 		return
 	}
 
@@ -5130,7 +5196,7 @@ func (a *app) handleDBRestore(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) handleDBRestoreCapabilities(w http.ResponseWriter, r *http.Request) {
-	if !a.requireAdmin(w, r) {
+	if !a.requirePermission(w, r, "config:database") {
 		return
 	}
 	_, store, err := a.openStoreFromCurrentConfig()

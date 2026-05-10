@@ -366,12 +366,25 @@
     }
 
     function canManageSystemUsers(){
-      return String(currentUserRole || "").toLowerCase() === "admin";
+      return hasAnyPermission(["users:read", "users:create", "users:edit"]);
+    }
+    function canReadSystemUsers(){
+      return hasPermission("users:read");
+    }
+    function canCreateSystemUsers(){
+      return hasPermission("users:create");
+    }
+    function canEditSystemUsers(){
+      return hasPermission("users:edit");
+    }
+    function canDeleteSystemUsers(){
+      return hasPermission("users:delete");
     }
 
     function normalizeRoleValue(role){
       const v = String(role || "").trim().toLowerCase();
       if (v === "seller_name" || v === "vendedor") return "vendedor";
+      if (v === "superuser" || v === "super_usuario" || v === "super-usuario") return "super_usuario";
       if (v === "manager" || v === "gerente") return "gerente";
       if (v === "operator") return "operador";
       return v || "operador";
@@ -399,10 +412,7 @@
       const container = document.querySelector(".config-sections");
       if (!container) return;
       const byName = (name) => container.querySelector("[data-reserve-tab='" + name + "']");
-      let order = ["solicitacoes", "reserved", "mensagens", "config", "home", "minhas", "solicitar"];
-      if (isVendedorRole()) {
-        order = ["home", "minhas", "solicitar"];
-      }
+      const order = ["home", "solicitacoes", "minhas", "solicitar", "reserved", "mensagens", "config"];
       for (const name of order) {
         const el = byName(name);
         if (el) container.appendChild(el);
@@ -419,19 +429,11 @@
       const navMonitor = document.getElementById("nav-monitor");
       const navLogs = document.getElementById("nav-logs");
       const navConfig = document.getElementById("nav-config");
-      if (isVendedorRole()) {
-        if (navDashboard) navDashboard.style.display = "none";
-        if (navMonitor) navMonitor.style.display = "none";
-        if (navLogs) navLogs.style.display = "none";
-        if (navConfig) navConfig.style.display = "none";
-        if (navReservas) navReservas.style.display = "";
-      } else {
-        if (navDashboard) navDashboard.style.display = canAccessSection("dashboard") ? "" : "none";
-        if (navReservas) navReservas.style.display = canAccessSection("reservas") ? "" : "none";
-        if (navMonitor) navMonitor.style.display = canAccessSection("monitor") ? "" : "none";
-        if (navLogs) navLogs.style.display = canAccessSection("logs") ? "" : "none";
-        if (navConfig) navConfig.style.display = canAccessSection("config") ? "" : "none";
-      }
+      if (navDashboard) navDashboard.style.display = canAccessSection("dashboard") ? "" : "none";
+      if (navReservas) navReservas.style.display = canAccessSection("reservas") ? "" : "none";
+      if (navMonitor) navMonitor.style.display = canAccessSection("monitor") ? "" : "none";
+      if (navLogs) navLogs.style.display = canAccessSection("logs") ? "" : "none";
+      if (navConfig) navConfig.style.display = canAccessSection("config") ? "" : "none";
       applyRBAC();
       if (!canManageSystemUsers()) {
         const modal = document.getElementById("appUserEditModal");
@@ -480,11 +482,8 @@
         forceRelogin("Sessão expirada. Faça login novamente.");
         return;
       }
-      if (isVendedorRole() && page !== "reservas") {
-        page = "reservas";
-      }
       if (!canAccessSection(page)) {
-        page = canAccessSection("reservas") ? "reservas" : "dashboard";
+        page = ["dashboard", "reservas", "config", "monitor", "logs"].find((p) => canAccessSection(p)) || "reservas";
       }
       const pages = {
         dashboard: document.getElementById("page-dashboard"),
@@ -504,7 +503,7 @@
         localStorage.setItem("last_page", page);
       } catch(_) {}
       if (page === "reservas") {
-        openReserveSection(isVendedorRole() ? "home" : (currentReserveSection || "solicitacoes"));
+        openReserveSection(currentReserveSection || "home");
       }
       if (page === "dashboard" && !dashboardLoaded) {
         loadDashboard();
@@ -978,9 +977,6 @@
       const logPanel = document.getElementById("reserve-log-panel");
       const page = document.getElementById("page-reservas");
 
-      if (isVendedorRole() && section !== "solicitar" && section !== "minhas" && section !== "home") {
-        section = "home";
-      }
       if (!canAccessReserveTab(section)) {
         const fallback = ["home", "solicitacoes", "minhas", "solicitar", "reserved", "mensagens", "config"].find((k) => canAccessReserveTab(k));
         section = fallback || "solicitacoes";
@@ -1003,7 +999,7 @@
       const tabs = document.querySelectorAll("[data-reserve-tab]");
       for (const tab of tabs) {
         const tabName = tab.getAttribute("data-reserve-tab");
-        if ((isVendedorRole() && tabName !== "solicitar" && tabName !== "minhas" && tabName !== "home") || !canAccessReserveTab(tabName)) {
+        if (!canAccessReserveTab(tabName)) {
           tab.style.display = "none";
         } else {
           tab.style.display = "";
@@ -1298,6 +1294,12 @@
       const rows = appUserRows.map((u) => {
         const id = Number(u.id || 0);
         const active = u.is_active ? "Sim" : "NÃ£o";
+        const editBtn = canEditSystemUsers()
+          ? "<button type=\"button\" class=\"auth-action-btn\" title=\"Editar\" aria-label=\"Editar\" onclick=\"openAppUserEditModal(" + String(id) + ")\">" + authActionIcon("edit") + "</button>"
+          : "";
+        const deleteBtn = canDeleteSystemUsers()
+          ? "<button type=\"button\" class=\"auth-action-btn auth-action-danger\" title=\"Excluir\" aria-label=\"Excluir\" onclick=\"deleteAppUser(" + String(id) + ")\">" + authActionIcon("delete") + "</button>"
+          : "";
         return "<tr>" +
           "<td>" + escapeHtml(id) + "</td>" +
           "<td>" + escapeHtml(u.username || "") + "</td>" +
@@ -1311,8 +1313,7 @@
           "<td>" + escapeHtml(u.supervisor || "") + "</td>" +
           "<td>" + escapeHtml(formatDateTimeBRSeconds(u.last_login_at || "")) + "</td>" +
           "<td><div class=\"auth-actions\">" +
-            "<button type=\"button\" class=\"auth-action-btn\" title=\"Editar\" aria-label=\"Editar\" onclick=\"openAppUserEditModal(" + String(id) + ")\">" + authActionIcon("edit") + "</button>" +
-            "<button type=\"button\" class=\"auth-action-btn auth-action-danger\" title=\"Excluir\" aria-label=\"Excluir\" onclick=\"deleteAppUser(" + String(id) + ")\">" + authActionIcon("delete") + "</button>" +
+            editBtn + deleteBtn +
           "</div></td>" +
         "</tr>";
       }).join("");
@@ -1339,7 +1340,8 @@
     }
 
     async function saveAppUser(){
-      if (!canManageSystemUsers()) {
+      const isEdit = Number(document.getElementById("appuser_id").value || 0) > 0;
+      if ((!isEdit && !canCreateSystemUsers()) || (isEdit && !canEditSystemUsers())) {
         setStatus("Acesso negado: perfil sem permissÃ£o");
         return;
       }
@@ -1369,7 +1371,7 @@
     }
 
     async function deleteAppUser(id){
-      if (!canManageSystemUsers()) {
+      if (!canDeleteSystemUsers()) {
         setStatus("Acesso negado: perfil sem permissÃ£o");
         return;
       }
@@ -1477,11 +1479,15 @@
       setStatus("Login realizado");
       if (!appBootstrapped) {
         appBootstrapped = true;
-        openPage(isVendedorRole() ? "reservas" : "dashboard");
+        const firstPage = ["dashboard", "reservas", "config", "monitor", "logs"].find((p) => canAccessSection(p)) || "reservas";
+        openPage(firstPage);
         loadConfig();
       } else {
         await loadConfig();
-        if (isVendedorRole()) openPage("reservas");
+        if (!canAccessSection(String(localStorage.getItem("last_page") || "").trim())) {
+          const firstPage = ["dashboard", "reservas", "config", "monitor", "logs"].find((p) => canAccessSection(p)) || "reservas";
+          openPage(firstPage);
+        }
       }
     }
 
@@ -1529,11 +1535,15 @@
       setStatus("Login realizado com MFA");
       if (!appBootstrapped) {
         appBootstrapped = true;
-        openPage(isVendedorRole() ? "reservas" : "dashboard");
+        const firstPage = ["dashboard", "reservas", "config", "monitor", "logs"].find((p) => canAccessSection(p)) || "reservas";
+        openPage(firstPage);
         loadConfig();
       } else {
         await loadConfig();
-        if (isVendedorRole()) openPage("reservas");
+        if (!canAccessSection(String(localStorage.getItem("last_page") || "").trim())) {
+          const firstPage = ["dashboard", "reservas", "config", "monitor", "logs"].find((p) => canAccessSection(p)) || "reservas";
+          openPage(firstPage);
+        }
       }
     }
 
@@ -4827,8 +4837,8 @@
         if (!appBootstrapped) {
           appBootstrapped = true;
           const savedPage = String(localStorage.getItem("last_page") || "").trim();
-          const preferredPage = isVendedorRole() ? "reservas" : (savedPage || "dashboard");
-          const targetPage = canAccessSection(preferredPage) ? preferredPage : (isVendedorRole() ? "reservas" : "dashboard");
+          const preferredPage = savedPage || "dashboard";
+          const targetPage = canAccessSection(preferredPage) ? preferredPage : (["dashboard", "reservas", "config", "monitor", "logs"].find((p) => canAccessSection(p)) || "reservas");
           openPage(targetPage);
           await loadConfig();
         }
@@ -4900,7 +4910,7 @@ function canAccessConfigTab(tabName){
     if (tab === "appusers") return hasAnyPermission(["users:read", "config:appusers"]);
     if (tab === "rbac") return hasAnyPermission(["roles:manage", "config:rbac"]);
     if (tab === "audit") return hasAnyPermission(["audit:view", "config:audit"]);
-    if (tab === "database") return hasAnyPermission(["configs:manage", "config:database"]);
+    if (tab === "database") return hasPermission("config:database");
     if (tab === "idsgrupos") return hasAnyPermission(["config:idsgrupos", "configs:manage"]);
     if (tab === "active_groups") return hasAnyPermission(["config:active_groups", "configs:manage"]);
     if (tab === "assemblies") return hasAnyPermission(["config:assemblies", "configs:manage"]);
@@ -4910,28 +4920,29 @@ function canAccessConfigTab(tabName){
 }
 
 function applyRBAC() {
-    // Bloquear botoes de exclusao
-    if (!hasPermission("solicitacoes:delete") && !hasPermission("users:delete") && !hasPermission("logs:delete")) {
-        document.querySelectorAll('button[onclick*="delete"], button[onclick*="Delete"], button[onclick*="clearDatabaseTables"], button[onclick*="dropDatabaseTables"], button[onclick*="clearLogs"]').forEach(b => b.style.display = 'none');
-    }
-    
-    // Bloqueio especÃ­fico para limpeza de logs
-    if (!hasPermission("logs:delete")) {
-        document.querySelectorAll('button[onclick*="clearLogs"]').forEach(b => b.style.display = 'none');
-    }
-    
-    // Ocultar aba de usuarios se nao puder gerenciar
-    const btnUser = document.querySelector('button[onclick="showConfigTab(\'appusers\')"]');
-    if (btnUser) {
-        btnUser.style.display = hasPermission("users:read") ? '' : 'none';
-    }
-
-    // Ocultar aba de permissoes se nao for admin
-    const btnPerm = document.querySelector('button[onclick="showConfigTab(\'rbac\')"]');
-    if (btnPerm) {
-        const isAdmin = window.currentUserRole && window.currentUserRole.toLowerCase() === "admin";
-        btnPerm.style.display = isAdmin ? '' : 'none';
-    }
+    // Aplicar visibilidade por ação específica.
+    document.querySelectorAll('button[onclick*="deleteAppUser"]').forEach((b) => {
+      b.style.display = hasPermission("users:delete") ? "" : "none";
+    });
+    document.querySelectorAll('button[onclick*="deleteSolicitacao"]').forEach((b) => {
+      b.style.display = hasPermission("solicitacoes:delete") ? "" : "none";
+    });
+    document.querySelectorAll('button[onclick*="clearLogs"],button[onclick*="deleteDiagnosticLog"],button[onclick*="deleteSelectedDiagnosticLogs"]').forEach((b) => {
+      b.style.display = hasPermission("logs:delete") ? "" : "none";
+    });
+    document.querySelectorAll('button[onclick*="clearDatabaseTables"]').forEach((b) => {
+      b.style.display = hasPermission("db:tables:clear") ? "" : "none";
+    });
+    document.querySelectorAll('button[onclick*="dropDatabaseTables"]').forEach((b) => {
+      b.style.display = hasPermission("db:tables:drop") ? "" : "none";
+    });
+    document.querySelectorAll('button[onclick*="createDatabaseTables"]').forEach((b) => {
+      b.style.display = hasPermission("db:tables:create") ? "" : "none";
+    });
+    const backupBtn = document.getElementById("db_backup_btn");
+    if (backupBtn) backupBtn.style.display = hasPermission("db:backup") ? "" : "none";
+    const restoreBtn = document.getElementById("db_restore_btn");
+    if (restoreBtn) restoreBtn.style.display = hasPermission("db:restore") ? "" : "none";
 }
 let currentRBACMatrix = [];
 
@@ -4992,7 +5003,7 @@ const permissionDescriptions = {
     "users:edit": "Editar dados de usuÃ¡rios",
     "users:delete": "Remover usuÃ¡rios do sistema",
     "roles:manage": "Gerenciar perfis e matriz de permissÃµes",
-    "configs:manage": "Acessar configuraÃ§Ãµes gerais e de banco",
+    "configs:manage": "Acessar configurações gerais do sistema",
     "logs:read": "Visualizar logs do sistema",
     "logs:delete": "Limpar ou excluir logs do sistema",
     "audit:view": "Visualizar trilha de auditoria e histÃ³rico de aÃ§Ãµes",
@@ -5005,7 +5016,12 @@ const permissionDescriptions = {
     "config:active_groups": "Acesso à configuração de grupos ativos",
     "config:assemblies": "Acesso à configuração de assembleias",
     "config:models": "Acesso à configuração de modelos",
-    "config:produtos": "Acesso à configuração de produtos"
+    "config:produtos": "Acesso à configuração de produtos",
+    "db:tables:create": "Atualizar/criar tabelas do banco",
+    "db:tables:clear": "Limpar dados das tabelas do banco",
+    "db:tables:drop": "Remover tabelas do banco",
+    "db:backup": "Gerar backup do banco",
+    "db:restore": "Restaurar backup no banco"
 };
 
 function openRBACEditModal(roleIndex) {
