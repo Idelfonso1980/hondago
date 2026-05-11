@@ -19,6 +19,8 @@
     let produtoRows = [];
     let assembleiaRows = [];
     let gruposAtivosRows = [];
+    let grupoSimilarRows = [];
+    let grupoSimilarBasePlan = "";
     let idsgRows = [];
     let reservedRows = [];
     let manualNotificationRows = [];
@@ -50,6 +52,7 @@
     let lastStatusFullText = "Status: Pronto";
     let authRedirectInProgress = false;
     let passwordChangeRequired = false;
+    let passwordChangeTempToken = "";
     let passwordPolicyUsers = [];
     let passwordPolicySelectedIDs = new Set();
     let passwordPolicyOffset = 0;
@@ -1409,6 +1412,27 @@
       ov.classList.toggle("hidden", !show);
     }
 
+    function showLoginStep(step){
+      const main = document.getElementById("loginMainFields");
+      const mfa = document.getElementById("mfaChallengeFields");
+      const pwd = document.getElementById("passwordChangeFields");
+      if (main) main.classList.toggle("hidden", step !== "login");
+      if (mfa) mfa.classList.toggle("hidden", step !== "mfa");
+      if (pwd) pwd.classList.toggle("hidden", step !== "password");
+    }
+
+    function enforcePasswordChangeGate(){
+      showLoginOverlay(true);
+      showLoginStep("password");
+      const errEl = document.getElementById("password_change_error");
+      if (errEl) errEl.textContent = "";
+      const n = document.getElementById("password_change_new");
+      const c = document.getElementById("password_change_confirm");
+      if (n) n.value = "";
+      if (c) c.value = "";
+      if (n) n.focus();
+    }
+
     async function ensureAppSession(){
       const res = await fetch("/api/app/session");
       if (!res.ok) return false;
@@ -1430,17 +1454,19 @@
       currentUserCPF = String(data.cpf || "");
       currentUserFilial = String(data.branch || data.filial || "");
       passwordChangeRequired = !!data.password_change_required;
+      passwordChangeTempToken = "";
       sellerHomeLoaded = false;
       const hello = document.querySelector(".user-chip span:last-child");
       if (hello) hello.textContent = "Olá, " + String(data.full_name || data.username || "Usuário");
       applyRolePermissions();
       if (passwordChangeRequired) {
-        openPasswordChangeModal();
+        enforcePasswordChangeGate();
       }
       return true;
     }
 
     async function loginAppUser(){
+      setStatus("Tentando login...");
       const username = (document.getElementById("login_username").value || "").trim();
       const password = document.getElementById("login_password").value || "";
       const loginErr = document.getElementById("login_error");
@@ -1451,12 +1477,25 @@
         setStatus(msg);
         return;
       }
-      const res = await fetch("/api/app/login?_cb=" + Date.now(), {
-        method: "POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({username, password})
-      });
-      const data = await res.json();
+      let res;
+      let data = {};
+      try {
+        res = await fetch("/api/app/login?_cb=" + Date.now(), {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({username, password})
+        });
+        try {
+          data = await res.json();
+        } catch (_) {
+          data = {};
+        }
+      } catch (err) {
+        const msg = "Falha de conexÃ£o ao autenticar. Tente novamente.";
+        if (loginErr) loginErr.textContent = msg;
+        setStatus(msg);
+        return;
+      }
       if (!res.ok || data.ok === false) {
         if (res.status === 401) {
           const msg = "UsuÃ¡rio ou senha incorretos. Revise os dados antes de tentar novamente.";
@@ -1475,8 +1514,7 @@
 
       if (data.mfa_required) {
         mfaTempToken = data.temp_token;
-        document.getElementById("loginMainFields").classList.add("hidden");
-        document.getElementById("mfaChallengeFields").classList.remove("hidden");
+        showLoginStep("mfa");
         document.getElementById("login_mfa_code").value = "";
         document.getElementById("login_mfa_code").focus();
         setStatus("Segundo fator de autenticaÃ§Ã£o necessÃ¡rio");
@@ -1492,16 +1530,17 @@
       currentUserCPF = String(data.cpf || "");
       currentUserFilial = String(data.branch || data.filial || "");
       passwordChangeRequired = !!data.password_change_required;
+      passwordChangeTempToken = String(data.temp_token || "");
       sellerHomeLoaded = false;
       const hello = document.querySelector(".user-chip span:last-child");
       if (hello) hello.textContent = "OlÃ¡, " + String(data.full_name || data.username || "UsuÃ¡rio");
       applyRolePermissions();
-      showLoginOverlay(false);
       setStatus("Login realizado");
       if (passwordChangeRequired) {
-        openPasswordChangeModal();
+        enforcePasswordChangeGate();
         return;
       }
+      showLoginOverlay(false);
       if (!appBootstrapped) {
         appBootstrapped = true;
         const firstPage = ["dashboard", "reservas", "config", "monitor", "logs"].find((p) => canAccessSection(p)) || "reservas";
@@ -1529,12 +1568,25 @@
       }
 
       setStatus("Verificando cÃ³digo MFA");
-      const res = await fetch("/api/app/mfa-login?_cb=" + Date.now(), {
-        method: "POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({temp_token: mfaTempToken, code: code})
-      });
-      const data = await res.json();
+      let res;
+      let data = {};
+      try {
+        res = await fetch("/api/app/mfa-login?_cb=" + Date.now(), {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({temp_token: mfaTempToken, code: code})
+        });
+        try {
+          data = await res.json();
+        } catch (_) {
+          data = {};
+        }
+      } catch (err) {
+        const msg = "Falha de conexÃ£o na validaÃ§Ã£o MFA.";
+        if (errEl) errEl.textContent = msg;
+        setStatus(msg);
+        return;
+      }
       if (!res.ok || data.ok === false) {
         const msg = data.message || "CÃ³digo invÃ¡lido ou expirado";
         if (errEl) errEl.textContent = msg;
@@ -1552,17 +1604,17 @@
       currentUserCPF = String(data.cpf || "");
       currentUserFilial = String(data.branch || data.filial || "");
       passwordChangeRequired = !!data.password_change_required;
+      passwordChangeTempToken = String(data.temp_token || "");
       const hello = document.querySelector(".user-chip span:last-child");
       if (hello) hello.textContent = "OlÃ¡, " + String(data.full_name || data.username || "UsuÃ¡rio");
       applyRolePermissions();
-      showLoginOverlay(false);
-      document.getElementById("loginMainFields").classList.remove("hidden");
-      document.getElementById("mfaChallengeFields").classList.add("hidden");
+      showLoginStep("login");
       setStatus("Login realizado com MFA");
       if (passwordChangeRequired) {
-        openPasswordChangeModal();
+        enforcePasswordChangeGate();
         return;
       }
+      showLoginOverlay(false);
       if (!appBootstrapped) {
         appBootstrapped = true;
         const firstPage = ["dashboard", "reservas", "config", "monitor", "logs"].find((p) => canAccessSection(p)) || "reservas";
@@ -1579,8 +1631,7 @@
 
     function cancelMFALogin(){
       mfaTempToken = "";
-      document.getElementById("loginMainFields").classList.remove("hidden");
-      document.getElementById("mfaChallengeFields").classList.add("hidden");
+      showLoginStep("login");
       setStatus("Login cancelado");
     }
 
@@ -1667,12 +1718,15 @@
       currentUserRole = "";
       sellerHomeLoaded = false;
       mfaTempToken = "";
+      passwordChangeRequired = false;
+      passwordChangeTempToken = "";
       appBootstrapped = false;
       window.currentUserRole = "";
       window.userPermissions = [];
       applyRolePermissions();
       closeUserMenu();
       showLoginOverlay(true);
+      showLoginStep("login");
       setStatus("SessÃ£o encerrada");
       const loginErr = document.getElementById("login_error");
       if (loginErr) loginErr.textContent = "";
@@ -1689,6 +1743,7 @@
     async function loadPasswordPolicy(){
       const statusInput = document.getElementById("password_policy_status");
       const enabledInput = document.getElementById("password_policy_enabled");
+      const massBtn = document.getElementById("password_policy_mass_action_btn");
       if (!statusInput || !enabledInput) return;
       statusInput.value = "Carregando...";
       try {
@@ -1696,6 +1751,9 @@
         const data = await res.json();
         if (!res.ok || data.ok === false) throw new Error(data.message || "Falha ao carregar política");
         enabledInput.checked = !!data.enabled;
+        if (massBtn) {
+          massBtn.textContent = data.enabled ? "Tornar Senhas Temporárias" : "Remover Temporária (Todos)";
+        }
         statusInput.value = `Política: ${data.enabled ? "ATIVA" : "INATIVA"} | Pendentes: ${Number(data.pending || 0)}`;
         loadPasswordPolicyUsers(0);
       } catch (err) {
@@ -1860,7 +1918,11 @@
     }
 
     async function forceAllTemporaryPasswords(){
-      const ok = confirm("Confirma marcar todos os usuários ativos para troca obrigatória de senha no próximo login?");
+      const enabled = !!(document.getElementById("password_policy_enabled")?.checked);
+      const msg = enabled
+        ? "Confirma marcar todos os usuários ativos para troca obrigatória de senha no próximo login?"
+        : "Política INATIVA: confirma remover a marcação temporária de todos os usuários ativos?";
+      const ok = confirm(msg);
       if (!ok) return;
       try {
         const res = await fetch("/api/security/password-policy/force-all", {method: "POST"});
@@ -1874,23 +1936,12 @@
     }
 
     function openPasswordChangeModal(){
-      const modal = document.getElementById("passwordChangeModal");
-      if (!modal) return;
-      const errEl = document.getElementById("password_change_error");
-      const n = document.getElementById("password_change_new");
-      const c = document.getElementById("password_change_confirm");
-      if (errEl) errEl.textContent = "";
-      if (n) n.value = "";
-      if (c) c.value = "";
-      modal.classList.remove("hidden");
-      if (n) n.focus();
+      enforcePasswordChangeGate();
     }
 
-    function closePasswordChangeModal(ev){
-      if (ev && ev.target && ev.target.id !== "passwordChangeModal") return;
+    function closePasswordChangeModal(_ev){
       if (passwordChangeRequired) return;
-      const modal = document.getElementById("passwordChangeModal");
-      if (modal) modal.classList.add("hidden");
+      showLoginStep("login");
     }
 
     async function submitPasswordChange(){
@@ -1910,12 +1961,32 @@
         const res = await fetch("/api/app/password/change", {
           method: "POST",
           headers: {"Content-Type":"application/json"},
-          body: JSON.stringify({new_password: n})
+          body: JSON.stringify({new_password: n, temp_token: passwordChangeTempToken || ""})
         });
         const data = await res.json();
         if (!res.ok || data.ok === false) throw new Error(data.message || "Falha ao atualizar senha");
         passwordChangeRequired = false;
-        document.getElementById("passwordChangeModal")?.classList.add("hidden");
+        passwordChangeTempToken = "";
+        showLoginStep("login");
+        showLoginOverlay(false);
+        isAuthenticated = true;
+        currentUserRole = normalizeRoleValue(data.role || "");
+        window.currentUserRole = currentUserRole;
+        window.userPermissions = data.permissions || [];
+        currentUserName = String(data.full_name || data.username || "");
+        currentUserCPF = String(data.cpf || "");
+        currentUserFilial = String(data.branch || data.filial || "");
+        const hello = document.querySelector(".user-chip span:last-child");
+        if (hello) hello.textContent = "Olá, " + String(data.full_name || data.username || "Usuário");
+        applyRolePermissions();
+        if (!appBootstrapped) {
+          appBootstrapped = true;
+          const firstPage = ["dashboard", "reservas", "config", "monitor", "logs"].find((p) => canAccessSection(p)) || "reservas";
+          openPage(firstPage);
+          await loadConfig();
+        } else {
+          await loadConfig();
+        }
         setStatus(data.message || "Senha atualizada");
       } catch (err) {
         if (errEl) errEl.textContent = err.message || "Erro ao atualizar senha";
@@ -2306,8 +2377,10 @@
       const raw = String(grupoEl.value || "").trim();
       const onlyDigits = raw.replace(/\D+/g, "");
       if (!onlyDigits) {
-        parcelasEl.value = "";
-        percEl.value = "";
+        if (forceLookup === true) {
+          parcelasEl.value = "";
+          percEl.value = "";
+        }
         return;
       }
       if (!forceLookup && onlyDigits.length < 4) return;
@@ -4421,6 +4494,107 @@
       }
     }
 
+    function renderGrupoSimilarTable(items){
+      grupoSimilarRows = Array.isArray(items) ? items : [];
+      const body = document.getElementById("grupoSimilarTableBody");
+      if (!body) return;
+      if (!grupoSimilarRows.length) {
+        body.innerHTML = "<tr><td colspan=\"7\">Nenhum grupo semelhante encontrado para os critérios.</td></tr>";
+        return;
+      }
+      const normPlan = (v) => String(v || "").trim().toLowerCase();
+      const basePlanNorm = normPlan(grupoSimilarBasePlan);
+      const sorted = [...grupoSimilarRows].sort((a, b) => {
+        const pa = normPlan(a.produto);
+        const pb = normPlan(b.produto);
+        const aBase = basePlanNorm && pa === basePlanNorm ? 0 : 1;
+        const bBase = basePlanNorm && pb === basePlanNorm ? 0 : 1;
+        if (aBase !== bBase) return aBase - bBase;
+        const pra = Number(a.term_months || 0);
+        const prb = Number(b.term_months || 0);
+        if (pra !== prb) return prb - pra;
+        if (pa < pb) return -1;
+        if (pa > pb) return 1;
+        return Number(a.group_code || 0) - Number(b.group_code || 0);
+      });
+      body.innerHTML = sorted.map((g) => {
+        const code = Number(g.group_code || 0);
+        return "<tr class=\"grupo-similar-row\" onclick=\"selectGrupoSemelhante(" + String(code) + ")\">" +
+          "<td>" + escapeHtml(String(g.group_code || "")) + "</td>" +
+          "<td>" + escapeHtml(g.group_type || "") + "</td>" +
+          "<td>" + escapeHtml(g.produto || "") + "</td>" +
+          "<td>" + escapeHtml(String(g.due_day || "")) + "</td>" +
+          "<td>" + escapeHtml(String(g.term_months || "")) + "</td>" +
+          "<td>" + escapeHtml(String(g.parcelas || "")) + "</td>" +
+          "<td>" + escapeHtml(formatPercent(g.bid_percent || "")) + "</td>" +
+        "</tr>";
+      }).join("");
+    }
+
+    function closeGrupoSimilarModal(ev){
+      if (ev && ev.target && ev.target.id !== "grupoSimilarModal") return;
+      const modal = document.getElementById("grupoSimilarModal");
+      if (modal) modal.classList.add("hidden");
+    }
+
+    async function searchGrupoSemelhante(){
+      const groupEl = document.getElementById("sol_grupo");
+      const code = String((groupEl && groupEl.value) || "").replace(/\D/g, "");
+      const installments = String((document.getElementById("sol_qtde_parcelas")?.value || "")).trim();
+      const bidRaw = percentInputToRaw(document.getElementById("sol_perc_lance")?.value || "");
+      let url = "";
+      let modeByGroup = true;
+      if (code) {
+        url = "/api/active_groups/similares?group_code=" + encodeURIComponent(code);
+      } else {
+        modeByGroup = false;
+        if (!installments || !bidRaw) {
+          setStatus("Sem grupo: preencha Qtde Parcelas e Perc. Lance");
+          renderGrupoSimilarTable([]);
+          return;
+        }
+        url = "/api/active_groups/similares?installments=" + encodeURIComponent(installments) + "&bid_percent=" + encodeURIComponent(bidRaw);
+      }
+      setStatus("Buscando grupos semelhantes");
+      const res = await fetch(url);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) {
+        setStatus(data.message || "Erro ao buscar grupos semelhantes");
+        renderGrupoSimilarTable([]);
+        return;
+      }
+      const criteria = document.getElementById("grupoSimilarCriteria");
+      const base = data.base || {};
+      grupoSimilarBasePlan = String(base.plan || "");
+      if (criteria) {
+        if (modeByGroup) {
+          criteria.textContent = "Base " + String(code) + " - Tipo: " + String(base.group_type || "-") + ", Plano: " + String(base.plan || "-") + ", Vencimento: " + String(base.due_day || "-") + ", Parcelas: " + String(base.parcelas || "-");
+        } else {
+          criteria.textContent = "Base sem grupo - Parcelas: " + String(base.parcelas || installments || "-") + ", Lance aprox.: " + escapeHtml(formatPercent(String(base.bid_percent || bidRaw || ""))) + " (\u00b1" + String(base.tolerance || "2.0") + ")";
+        }
+      }
+      renderGrupoSimilarTable(data.items || []);
+      setStatus("Semelhantes carregados: " + String(data.count || 0));
+    }
+
+    async function openGrupoSimilarModal(){
+      const modal = document.getElementById("grupoSimilarModal");
+      if (!modal) return;
+      modal.classList.remove("hidden");
+      await searchGrupoSemelhante();
+    }
+
+    async function selectGrupoSemelhante(groupCode){
+      const code = String(groupCode || "").replace(/\D/g, "");
+      if (!code) return;
+      const groupEl = document.getElementById("sol_grupo");
+      if (groupEl) groupEl.value = code;
+      closeGrupoSimilarModal();
+      await autoFillSolicitacaoByGroup("sol");
+      await syncSolicitacaoParcelasByGrupo(true);
+      setStatus("Grupo aplicado na solicitação");
+    }
+
     async function uploadDatabaseRestore(input) {
       const file = input.files[0];
       if (!file) return;
@@ -4917,6 +5091,7 @@
         closeStatusDetailsModal();
         closeAuthEditModal();
         closeSolicitacaoEditModal();
+        closeGrupoSimilarModal();
         closeIDsGrupoEditModal();
         closeAppUserEditModal();
         closeRBACEditModal();
@@ -5082,6 +5257,12 @@
     document.getElementById("msg_status").addEventListener("change", () => {
       searchManualNotifications();
     });
+    const loginSubmitBtn = document.getElementById("login_submit_btn");
+    if (loginSubmitBtn) {
+      loginSubmitBtn.onclick = () => {
+        loginAppUser();
+      };
+    }
     setDashboardDefaultDates();
     setSolicitacoesDefaultDates();
     setMinhasSolicitacoesDefaultDates();
@@ -5099,6 +5280,10 @@
     (async () => {
       const hasSession = await ensureAppSession();
       if (hasSession) {
+        if (passwordChangeRequired) {
+          enforcePasswordChangeGate();
+          return;
+        }
         showLoginOverlay(false);
         if (!appBootstrapped) {
           appBootstrapped = true;
@@ -5111,6 +5296,7 @@
         return;
       }
       showLoginOverlay(true);
+      showLoginStep("login");
       isAuthenticated = false;
       currentUserRole = "";
       window.currentUserRole = "";

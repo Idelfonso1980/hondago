@@ -200,6 +200,16 @@ type IDsGrupoDisponivelRecord struct {
 	Failed        int64
 }
 
+type SimilarGrupoRecord struct {
+	Grupo      int64
+	Tipo       string
+	Vencimento int64
+	Prazo      int64
+	Parcelas   int64
+	PercLance  sql.NullFloat64
+	Produto    string
+}
+
 type ModeloRecord struct {
 	ID       int64
 	IDModelo int64
@@ -896,6 +906,19 @@ SET must_change_password=1,
     temp_password_issued_at=?,
     updated_at=?
 WHERE is_active=1`), now, now)
+	if err != nil {
+		return 0, err
+	}
+	rows, _ := res.RowsAffected()
+	return rows, nil
+}
+
+func (s *Store) ClearAllActiveUsersTemporaryPassword(ctx context.Context) (int64, error) {
+	now := formatDateTimeUTCMinus3(nowUTCMinus3())
+	res, err := s.DB.ExecContext(ctx, s.bind(`UPDATE users
+SET must_change_password=0,
+    updated_at=?
+WHERE is_active=1`), now)
 	if err != nil {
 		return 0, err
 	}
@@ -1905,6 +1928,101 @@ CAST(COALESCE(failed, 0) AS INTEGER) AS failed`
 		return nil, err
 	}
 	return &rec, nil
+}
+
+func (s *Store) SearchSimilarAvailableGroups(ctx context.Context, groupCode int64, limit int) (*IDsGrupoDisponivelRecord, []SimilarGrupoRecord, error) {
+	if groupCode <= 0 {
+		return nil, nil, fmt.Errorf("group_code invalido")
+	}
+	if limit <= 0 || limit > 300 {
+		limit = 120
+	}
+
+	var base IDsGrupoDisponivelRecord
+	err := s.DB.QueryRowContext(ctx, s.bind(`
+SELECT
+  CAST(COALESCE(id, 0) AS INTEGER) AS id,
+  CAST(COALESCE(group_api_id, 0) AS INTEGER) AS group_api_id,
+  CAST(products AS TEXT) AS products,
+  CAST(COALESCE(due_day, 0) AS INTEGER) AS due_day,
+  CAST(COALESCE(term_months, 0) AS INTEGER) AS term_months,
+  CAST(group_kind AS TEXT) AS group_kind,
+  CAST(COALESCE(group_code, 0) AS INTEGER) AS group_code,
+  CAST(COALESCE(quota, 0) AS INTEGER) AS quota,
+  CAST(COALESCE(r, 0) AS INTEGER) AS r,
+  CAST(COALESCE(d, 0) AS INTEGER) AS d,
+  CAST(COALESCE(booked, 0) AS INTEGER) AS booked,
+  CAST(created_at AS TEXT) AS created_at,
+  CAST(COALESCE(participants, 0) AS INTEGER) AS participants,
+  CAST(COALESCE(failed, 0) AS INTEGER) AS failed
+FROM available_group_ids
+WHERE group_code = ?
+ORDER BY id DESC
+LIMIT 1`), groupCode).Scan(
+		&base.ID, &base.IDGrupo, &base.Produto, &base.Vencimento, &base.Prazo,
+		&base.Tipo, &base.Grupo, &base.Cota, &base.R, &base.D,
+		&base.Booked, &base.CreatedAt, &base.Participantes, &base.Failed,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	rows, err := s.DB.QueryContext(ctx, s.bind(`
+SELECT
+  CAST(COALESCE(NULLIF(CAST(c.group_code AS TEXT), ''), '0') AS INTEGER) AS group_code,
+  CAST(COALESCE(c.group_kind, '') AS TEXT) AS tipo,
+  CAST(COALESCE(NULLIF(CAST(c.due_day AS TEXT), ''), '0') AS INTEGER) AS vencimento,
+  CAST(COALESCE(NULLIF(CAST(c.term_months AS TEXT), ''), '0') AS INTEGER) AS prazo,
+  CAST(COALESCE(NULLIF(CAST(c.term_months AS TEXT), ''), '0') AS INTEGER) AS parcelas,
+  CAST(COALESCE(c.products, '') AS TEXT) AS produto,
+  CAST(COALESCE((
+      SELECT CAST(REPLACE(COALESCE(NULLIF(TRIM(CAST(a.bid_percent AS TEXT)), ''), '0'), ',', '.') AS REAL)
+      FROM assemblies a
+      WHERE CAST(COALESCE(NULLIF(CAST(a.group_code AS TEXT), ''), '0') AS INTEGER) = CAST(COALESCE(NULLIF(CAST(c.group_code AS TEXT), ''), '0') AS INTEGER)
+      ORDER BY CAST(COALESCE(NULLIF(CAST(a.id AS TEXT), ''), '0') AS INTEGER) DESC
+      LIMIT 1
+  ), 0) AS REAL) AS bid_percent
+FROM available_group_ids c
+WHERE CAST(COALESCE(NULLIF(CAST(c.group_code AS TEXT), ''), '0') AS INTEGER) <> ?
+  AND CAST(COALESCE(c.group_kind, '') AS TEXT) = CAST(COALESCE(?, '') AS TEXT)
+  AND CAST(COALESCE(NULLIF(CAST(c.due_day AS TEXT), ''), '0') AS INTEGER) = ?
+  AND CAST(COALESCE(NULLIF(CAST(c.term_months AS TEXT), ''), '0') AS INTEGER) = ?
+GROUP BY
+  CAST(COALESCE(NULLIF(CAST(c.group_code AS TEXT), ''), '0') AS INTEGER),
+  CAST(COALESCE(c.group_kind, '') AS TEXT),
+  CAST(COALESCE(NULLIF(CAST(c.due_day AS TEXT), ''), '0') AS INTEGER),
+  CAST(COALESCE(NULLIF(CAST(c.term_months AS TEXT), ''), '0') AS INTEGER),
+  CAST(COALESCE(c.products, '') AS TEXT)
+ORDER BY bid_percent ASC, group_code ASC
+LIMIT ?`),
+		groupCode,
+		strings.TrimSpace(base.Tipo),
+		base.Vencimento,
+		base.Prazo,
+		limit,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	out := make([]SimilarGrupoRecord, 0, limit)
+	for rows.Next() {
+		var r SimilarGrupoRecord
+		if err := rows.Scan(
+			&r.Grupo,
+			&r.Tipo,
+			&r.Vencimento,
+			&r.Prazo,
+			&r.Parcelas,
+			&r.Produto,
+			&r.PercLance,
+		); err != nil {
+			return nil, nil, err
+		}
+		out = append(out, r)
+	}
+	return &base, out, rows.Err()
 }
 
 func (s *Store) GetSolicitacaoByID(ctx context.Context, id int64) (*SolicitacaoRecord, error) {

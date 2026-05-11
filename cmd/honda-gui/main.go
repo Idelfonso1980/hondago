@@ -115,6 +115,7 @@ var methodPolicy = map[string][]string{
 	"/api/active_groups":                    {http.MethodGet},
 	"/api/active_groups/get":                {http.MethodGet},
 	"/api/active_groups/parcelas":           {http.MethodGet},
+	"/api/active_groups/similares":          {http.MethodGet},
 	"/api/active_groups/save":               {http.MethodPost},
 	"/api/active_groups/delete":             {http.MethodPost},
 	"/api/active_groups/delete-batch":       {http.MethodPost},
@@ -193,7 +194,7 @@ type dbCapabilities struct {
 }
 
 var endpointRateLimitPolicy = map[string]rateRule{
-	"/api/app/login":      {Window: 1 * time.Minute, Limit: 12},
+	"/api/app/login":      {Window: 1 * time.Minute, Limit: 60},
 	"/api/app/mfa-login":  {Window: 1 * time.Minute, Limit: 20},
 	"/api/mfa/verify":     {Window: 1 * time.Minute, Limit: 20},
 	"/api/rbac/update":    {Window: 1 * time.Minute, Limit: 20},
@@ -332,6 +333,7 @@ type app struct {
 	startedAt     time.Time
 	finishedAt    time.Time
 	mfaTempTokens map[string]mfaTempToken
+	passwordChangeTempTokens map[string]mfaTempToken
 	store         *db.Store
 	cfg           *config.Config
 }
@@ -579,6 +581,16 @@ type grupoAtivoIDsPayload struct {
 	IDs []int64 `json:"ids"`
 }
 
+type grupoSimilarPayload struct {
+	Grupo      int64  `json:"group_code"`
+	Tipo       string `json:"group_type"`
+	Vencimento int64  `json:"due_day"`
+	Prazo      int64  `json:"term_months"`
+	Parcelas   int64  `json:"parcelas"`
+	PercLance  string `json:"bid_percent"`
+	Produto    string `json:"produto"`
+}
+
 type appLoginPayload struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
@@ -586,6 +598,7 @@ type appLoginPayload struct {
 
 type appPasswordChangePayload struct {
 	NewPassword string `json:"new_password"`
+	TempToken   string `json:"temp_token,omitempty"`
 }
 
 type passwordPolicyPayload struct {
@@ -671,6 +684,7 @@ func main() {
 		limiter:       newFixedWindowRateLimiter(),
 		logBuffer:     newRingBuffer(1000),
 		mfaTempTokens: make(map[string]mfaTempToken),
+		passwordChangeTempTokens: make(map[string]mfaTempToken),
 	}
 	defer app.closeStore()
 
@@ -747,6 +761,7 @@ func main() {
 	mux.HandleFunc("/api/active_groups", app.handleGruposAtivosSearch)
 	mux.HandleFunc("/api/active_groups/get", app.handleGrupoAtivoGet)
 	mux.HandleFunc("/api/active_groups/parcelas", app.handleGrupoAtivoParcelas)
+	mux.HandleFunc("/api/active_groups/similares", app.handleGrupoAtivoSimilares)
 	mux.HandleFunc("/api/active_groups/save", app.handleGrupoAtivoSave)
 	mux.HandleFunc("/api/active_groups/delete", app.handleGrupoAtivoDelete)
 	mux.HandleFunc("/api/active_groups/delete-batch", app.handleGruposAtivosDeleteBatch)
@@ -822,7 +837,7 @@ func (a *app) withAuth(next http.Handler) http.Handler {
 				return
 			}
 		}
-		if path == "/" || path == "/api/app/login" || path == "/api/app/session" || path == "/api/app/mfa-login" {
+		if path == "/" || path == "/api/app/login" || path == "/api/app/session" || path == "/api/app/mfa-login" || path == "/api/app/password/change" {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -1258,6 +1273,23 @@ func (a *app) handleAppLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if user.MustChangePassword == 1 {
+		a.clearSessionCookie(w)
+		tempToken, _ := newSessionToken()
+		a.mu.Lock()
+		a.passwordChangeTempTokens[tempToken] = mfaTempToken{
+			UserID:    user.ID,
+			ExpiresAt: time.Now().Add(10 * time.Minute),
+		}
+		a.mu.Unlock()
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":                       true,
+			"password_change_required": true,
+			"temp_token":               tempToken,
+		})
+		return
+	}
+
 	token, err := newSessionToken()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
@@ -1319,11 +1351,6 @@ func (a *app) handleAppLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) handleAppPasswordChange(w http.ResponseWriter, r *http.Request) {
-	sess, ok := a.currentSession(r)
-	if !ok {
-		writeJSON(w, http.StatusUnauthorized, runResponse{OK: false, Message: "Nao autenticado"})
-		return
-	}
 	var p appPasswordChangePayload
 	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
@@ -1334,17 +1361,81 @@ func (a *app) handleAppPasswordChange(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, fmt.Errorf("nova senha obrigatoria"))
 		return
 	}
+	sess, hasSession := a.currentSession(r)
+	userID := int64(0)
+	if hasSession {
+		userID = sess.UserID
+	} else {
+		tempToken := strings.TrimSpace(p.TempToken)
+		if tempToken == "" {
+			writeJSON(w, http.StatusUnauthorized, runResponse{OK: false, Message: "Nao autenticado"})
+			return
+		}
+		a.mu.Lock()
+		temp, exists := a.passwordChangeTempTokens[tempToken]
+		a.mu.Unlock()
+		if !exists || temp.ExpiresAt.Before(time.Now()) {
+			writeErr(w, http.StatusUnauthorized, fmt.Errorf("sessao de troca de senha expirada"))
+			return
+		}
+		userID = temp.UserID
+	}
 	_, store, err := a.openStoreFromCurrentConfig()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	if err := store.ChangeOwnPassword(r.Context(), sess.UserID, newPassword); err != nil {
+	if err := store.ChangeOwnPassword(r.Context(), userID, newPassword); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	a.logAudit(r, "CHANGE_OWN_PASSWORD", "users", strconv.FormatInt(sess.UserID, 10), "", "password_changed")
-	writeJSON(w, http.StatusOK, runResponse{OK: true, Message: "Senha atualizada com sucesso"})
+	if !hasSession {
+		a.mu.Lock()
+		delete(a.passwordChangeTempTokens, strings.TrimSpace(p.TempToken))
+		a.mu.Unlock()
+	}
+	user, err := store.GetAppUserByID(r.Context(), userID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	token, err := newSessionToken()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	perms, _ := store.GetRolePermissions(r.Context(), user.Role)
+	if perms == nil {
+		perms = []string{}
+	}
+	sessRecord := &db.AppSessionRecord{
+		Token:           token,
+		UserID:          user.ID,
+		Username:        user.Username,
+		DisplayName:     user.DisplayName,
+		CPF:             user.CPF,
+		Filial:          user.Filial,
+		Role:            user.Role,
+		Permissions:     perms,
+		AuthenticatedAt: time.Now(),
+	}
+	if err := store.SaveAppSession(r.Context(), sessRecord); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	a.setSessionCookie(w, r, token)
+	a.setCSRFCookie(w, r, readCSRFCookieValue(r))
+	a.logAudit(r, "CHANGE_OWN_PASSWORD", "users", strconv.FormatInt(userID, 10), "", "password_changed")
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":          true,
+		"message":     "Senha atualizada com sucesso",
+		"full_name":   user.DisplayName,
+		"username":    user.Username,
+		"cpf":         strings.TrimSpace(user.CPF.String),
+		"branch":      strings.TrimSpace(user.Filial.String),
+		"role":        user.Role,
+		"permissions": perms,
+	})
 }
 
 func (a *app) handlePasswordPolicy(w http.ResponseWriter, r *http.Request) {
@@ -1400,16 +1491,37 @@ func (a *app) handlePasswordPolicyForceAll(w http.ResponseWriter, r *http.Reques
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	affected, err := store.ForceAllActiveUsersTemporaryPassword(r.Context())
+	enabled, err := store.IsPasswordPolicyEnabled(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	a.logAudit(r, "PASSWORD_FORCE_ALL_TEMP", "security", "users", "", fmt.Sprintf("affected=%d", affected))
+	if enabled {
+		affected, err := store.ForceAllActiveUsersTemporaryPassword(r.Context())
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		a.logAudit(r, "PASSWORD_FORCE_ALL_TEMP", "security", "users", "", fmt.Sprintf("affected=%d", affected))
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":       true,
+			"affected": affected,
+			"message":  fmt.Sprintf("Usuarios ativos marcados para troca obrigatoria: %d", affected),
+			"mode":     "force_temp",
+		})
+		return
+	}
+	affected, err := store.ClearAllActiveUsersTemporaryPassword(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	a.logAudit(r, "PASSWORD_CLEAR_ALL_TEMP", "security", "users", "", fmt.Sprintf("affected=%d", affected))
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":       true,
 		"affected": affected,
-		"message":  fmt.Sprintf("Usuarios ativos marcados para troca obrigatoria: %d", affected),
+		"message":  fmt.Sprintf("Marcacao temporaria removida dos usuarios ativos: %d", affected),
+		"mode":     "clear_temp",
 	})
 }
 
@@ -5035,6 +5147,186 @@ func (a *app) handleGrupoAtivoParcelas(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (a *app) handleGrupoAtivoSimilares(w http.ResponseWriter, r *http.Request) {
+	groupCode, _ := strconv.ParseInt(strings.TrimSpace(r.URL.Query().Get("group_code")), 10, 64)
+	limit := 120
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		if n, convErr := strconv.Atoi(raw); convErr == nil && n > 0 {
+			limit = n
+		}
+	}
+	_, store, err := a.openStoreFromCurrentConfig()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	if groupCode <= 0 {
+		installments, convErr := strconv.ParseInt(strings.TrimSpace(r.URL.Query().Get("installments")), 10, 64)
+		if convErr != nil || installments <= 0 {
+			writeErr(w, http.StatusBadRequest, fmt.Errorf("informe group_code ou installments"))
+			return
+		}
+		rawBid := strings.TrimSpace(r.URL.Query().Get("bid_percent"))
+		if rawBid == "" {
+			writeErr(w, http.StatusBadRequest, fmt.Errorf("bid_percent obrigatorio quando group_code vazio"))
+			return
+		}
+		bid, convErr := strconv.ParseFloat(strings.ReplaceAll(rawBid, ",", "."), 64)
+		if convErr != nil {
+			writeErr(w, http.StatusBadRequest, fmt.Errorf("bid_percent invalido"))
+			return
+		}
+		tolerance := 10.0
+		if rawTol := strings.TrimSpace(r.URL.Query().Get("tolerance")); rawTol != "" {
+			if tol, tolErr := strconv.ParseFloat(strings.ReplaceAll(rawTol, ",", "."), 64); tolErr == nil && tol > 0 {
+				tolerance = tol
+			}
+		}
+
+		filters := fmt.Sprintf("parc:%d", installments)
+		sqlFilters, parcFilters := splitGAFiltersForSQL(filters)
+		candidateLimit := limit * 40
+		if candidateLimit < 3000 {
+			candidateLimit = 3000
+		}
+		if candidateLimit > 10000 {
+			candidateLimit = 10000
+		}
+		records, qErr := store.SearchGruposAtivos(r.Context(), "", "", sqlFilters, candidateLimit)
+		if qErr != nil {
+			writeErr(w, http.StatusInternalServerError, qErr)
+			return
+		}
+		holidays, _ := store.ListActiveNationalHolidayDates(r.Context())
+		now := time.Now().In(utcMinus3Loc)
+		out := make([]grupoSimilarPayload, 0, len(records))
+		for i := range records {
+			rec := records[i]
+			parcelas := calculateParcelasFromGrupoAtivo(&rec, holidays, now)
+			if len(parcFilters) > 0 && !matchesParcFilter(parcelas, parcFilters) {
+				continue
+			}
+			if !rec.PercLance.Valid {
+				continue
+			}
+			diff := rec.PercLance.Float64 - bid
+			if diff < 0 {
+				diff = -diff
+			}
+			if diff > tolerance {
+				continue
+			}
+			item := grupoSimilarPayload{
+				Grupo:      rec.Grupo,
+				Tipo:       rec.TipoGrupo,
+				Vencimento: rec.Vencimento,
+				Prazo:      rec.Prazo,
+				Parcelas:   parcelas,
+				Produto:    rec.Plano,
+				PercLance:  strconv.FormatFloat(rec.PercLance.Float64, 'f', -1, 64),
+			}
+			out = append(out, item)
+			if len(out) >= limit {
+				break
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":    true,
+			"found": true,
+			"base": map[string]any{
+				"group_code":  0,
+				"group_type":  "",
+				"plan":        "",
+				"due_day":     0,
+				"term_months": 0,
+				"parcelas":    installments,
+				"bid_percent": bid,
+				"tolerance":   tolerance,
+				"filters":     filters,
+			},
+			"items": out,
+			"count": len(out),
+		})
+		return
+	}
+
+	baseAG, err := store.GetGrupoAtivoByGrupo(r.Context(), groupCode)
+	if err != nil || baseAG == nil {
+		if err == sql.ErrNoRows {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"ok":      true,
+				"found":   false,
+				"message": "Grupo base nao encontrado em grupos ativos",
+				"items":   []grupoSimilarPayload{},
+				"count":   0,
+			})
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	holidays, _ := store.ListActiveNationalHolidayDates(r.Context())
+	now := time.Now().In(utcMinus3Loc)
+	baseParcelas := calculateParcelasFromGrupoAtivo(baseAG, holidays, now)
+
+	filters := fmt.Sprintf("tipo:%s;venc:%d;parc:%d", strings.TrimSpace(baseAG.TipoGrupo), baseAG.Vencimento, baseParcelas)
+	sqlFilters, parcFilters := splitGAFiltersForSQL(filters)
+	// Importante: buscar uma janela maior antes de filtrar parcelas em memória,
+	// para não perder grupos antigos por causa de LIMIT precoce no SQL.
+	candidateLimit := limit * 30
+	if candidateLimit < 2000 {
+		candidateLimit = 2000
+	}
+	if candidateLimit > 10000 {
+		candidateLimit = 10000
+	}
+	records, qErr := store.SearchGruposAtivos(r.Context(), "", "", sqlFilters, candidateLimit)
+	if qErr != nil {
+		writeErr(w, http.StatusInternalServerError, qErr)
+		return
+	}
+	out := make([]grupoSimilarPayload, 0, len(records))
+	for i := range records {
+		rec := records[i]
+		parcelas := calculateParcelasFromGrupoAtivo(&rec, holidays, now)
+		if len(parcFilters) > 0 && !matchesParcFilter(parcelas, parcFilters) {
+			continue
+		}
+		item := grupoSimilarPayload{
+			Grupo:      rec.Grupo,
+			Tipo:       rec.TipoGrupo,
+			Vencimento: rec.Vencimento,
+			Prazo:      rec.Prazo,
+			Parcelas:   parcelas,
+			Produto:    rec.Plano,
+		}
+		if rec.PercLance.Valid {
+			item.PercLance = strconv.FormatFloat(rec.PercLance.Float64, 'f', -1, 64)
+		}
+		out = append(out, item)
+		if len(out) >= limit {
+			break
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":    true,
+		"found": true,
+		"base": map[string]any{
+			"group_code":  groupCode,
+			"group_type":  baseAG.TipoGrupo,
+			"plan":        baseAG.Plano,
+			"due_day":     baseAG.Vencimento,
+			"term_months": baseAG.Prazo,
+			"parcelas":    baseParcelas,
+			"filters":     filters,
+		},
+		"items": out,
+		"count": len(out),
+	})
+}
+
 func (a *app) handleGrupoAtivoSave(w http.ResponseWriter, r *http.Request) {
 	var p grupoAtivoPayload
 	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
@@ -6532,6 +6824,23 @@ func (a *app) handleAppMFALogin(w http.ResponseWriter, r *http.Request) {
 	a.mu.Lock()
 	delete(a.mfaTempTokens, p.Token)
 	a.mu.Unlock()
+
+	if user.MustChangePassword == 1 {
+		a.clearSessionCookie(w)
+		tempToken, _ := newSessionToken()
+		a.mu.Lock()
+		a.passwordChangeTempTokens[tempToken] = mfaTempToken{
+			UserID:    user.ID,
+			ExpiresAt: time.Now().Add(10 * time.Minute),
+		}
+		a.mu.Unlock()
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":                       true,
+			"password_change_required": true,
+			"temp_token":               tempToken,
+		})
+		return
+	}
 
 	// Login final
 	token, _ := newSessionToken()

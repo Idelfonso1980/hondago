@@ -939,7 +939,7 @@
 
               <div class="auth-toolbar" style="margin-top: 10px;">
                 <button class="btn" onclick="savePasswordPolicy()">Salvar Política</button>
-                <button class="btn btn-danger" onclick="forceAllTemporaryPasswords()">Tornar Senhas Temporárias</button>
+                <button id="password_policy_mass_action_btn" class="btn btn-danger" onclick="forceAllTemporaryPasswords()">Tornar Senhas Temporárias</button>
               </div>
 
               <div class="field" style="margin-top: 8px;">
@@ -1428,7 +1428,13 @@
             </select>
           </div>
           <div class="field"><label>Licenciado</label><select id="sol_plano"><option value="N&atilde;o" selected>N&atilde;o</option><option value="Sim">Sim</option></select></div>
-          <div class="field"><label>Grupo</label><input id="sol_grupo" onblur="autoFillSolicitacaoByGroup('sol')" /></div>
+          <div class="field">
+            <label>Grupo</label>
+            <div class="inline-input-action">
+              <input id="sol_grupo" onblur="autoFillSolicitacaoByGroup('sol')" />
+              <button type="button" class="btn search-icon-btn" data-icon="search" title="Buscar grupos semelhantes" aria-label="Buscar grupos semelhantes" onclick="openGrupoSimilarModal()">Buscar</button>
+            </div>
+          </div>
           <div class="field"><label>Qtde Parcelas</label><input id="sol_qtde_parcelas" /></div>
           <div class="field"><label>Perc. Lance</label><input id="sol_perc_lance" /></div>
           <div class="field"><label>Com Restri&ccedil;&atilde;o</label><select id="sol_com_restricao"><option value="N&atilde;o" selected>N&atilde;o</option><option value="Sim">Sim</option></select></div>
@@ -1442,6 +1448,41 @@
         </div>
         <div class="form-footer">
           <button type="button" class="btn" onclick="saveSolicitacao()">Salvar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="grupoSimilarModal" class="modal hidden" onclick="closeGrupoSimilarModal(event)">
+    <div class="modal-card auth-modal-card" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <div>
+          <h3>Grupos Semelhantes</h3>
+          <p class="modal-sub" id="grupoSimilarCriteria">Mesmos critérios do grupo informado.</p>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button type="button" class="btn" onclick="searchGrupoSemelhante()">Buscar</button>
+          <button type="button" class="btn" onclick="closeGrupoSimilarModal()">Fechar</button>
+        </div>
+      </div>
+      <div class="diag-body">
+        <div class="auth-table-wrap" style="max-height:52vh;">
+          <table class="auth-table grupo-similar-table">
+            <thead>
+              <tr>
+                <th>Grupo</th>
+                <th>Tipo</th>
+                <th>Plano</th>
+                <th>Venc.</th>
+                <th>Prazo</th>
+                <th>Parc.</th>
+                <th>Lance</th>
+              </tr>
+            </thead>
+            <tbody id="grupoSimilarTableBody">
+              <tr><td colspan="7">Informe um grupo e clique na lupa para buscar.</td></tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -1772,7 +1813,7 @@
               </div>
               <p id="login_error" class="login-error"></p>
               <div class="form-footer" style="margin-top:8px; padding-top:10px;">
-                <button class="btn" onclick="loginAppUser()">Entrar</button>
+                <button id="login_submit_btn" class="btn" onclick="loginAppUser()">Entrar</button>
               </div>
             </div>
             
@@ -1788,34 +1829,25 @@
                 <button class="btn-text" onclick="cancelMFALogin()" style="font-size:12px; color:var(--text-dim); cursor:pointer; background:none; border:none;">Voltar para UsuÃ¡rio/Senha</button>
               </div>
             </div>
+
+            <div id="passwordChangeFields" class="hidden">
+              <p class="mfa-info">Troca de senha obrigatória para continuar.</p>
+              <div class="field">
+                <label>Nova senha</label>
+                <input id="password_change_new" type="password" placeholder="Mínimo 12 caracteres com maiúscula, minúscula, número e símbolo" />
+              </div>
+              <div class="field">
+                <label>Confirmar nova senha</label>
+                <input id="password_change_confirm" type="password" placeholder="Repita a nova senha" />
+              </div>
+              <p id="password_change_error" class="login-error"></p>
+              <div class="form-footer" style="margin-top:8px; padding-top:10px;">
+                <button class="btn" onclick="submitPasswordChange()">Atualizar Senha</button>
+              </div>
+            </div>
           </div>
         </div>
       </section>
-    </div>
-  </div>
-
-  <div id="passwordChangeModal" class="auth-modal hidden" onclick="closePasswordChangeModal(event)">
-    <div class="auth-modal-card">
-      <div class="auth-modal-head">
-        <div>
-          <h3>Troca de Senha Obrigatória</h3>
-          <p class="modal-sub">Sua conta está com senha temporária. Defina uma nova senha para continuar.</p>
-        </div>
-      </div>
-      <div class="auth-modal-body">
-        <div class="field">
-          <label>Nova senha</label>
-          <input id="password_change_new" type="password" placeholder="Mínimo 12 caracteres com maiúscula, minúscula, número e símbolo" />
-        </div>
-        <div class="field">
-          <label>Confirmar nova senha</label>
-          <input id="password_change_confirm" type="password" placeholder="Repita a nova senha" />
-        </div>
-        <p id="password_change_error" class="login-error"></p>
-        <div class="form-footer" style="margin-top:8px; padding-top:10px;">
-          <button class="btn" onclick="submitPasswordChange()">Atualizar Senha</button>
-        </div>
-      </div>
     </div>
   </div>
 
