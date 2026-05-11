@@ -4503,6 +4503,11 @@
         return;
       }
       const normPlan = (v) => String(v || "").trim().toLowerCase();
+      const toLance = (v) => {
+        const s = String(v || "").trim().replace("%", "").replace(",", ".");
+        const n = Number(s);
+        return Number.isFinite(n) ? n : Number.POSITIVE_INFINITY;
+      };
       const basePlanNorm = normPlan(grupoSimilarBasePlan);
       const sorted = [...grupoSimilarRows].sort((a, b) => {
         const pa = normPlan(a.produto);
@@ -4515,6 +4520,9 @@
         if (pra !== prb) return prb - pra;
         if (pa < pb) return -1;
         if (pa > pb) return 1;
+        const la = toLance(a.bid_percent);
+        const lb = toLance(b.bid_percent);
+        if (la !== lb) return la - lb;
         return Number(a.group_code || 0) - Number(b.group_code || 0);
       });
       body.innerHTML = sorted.map((g) => {

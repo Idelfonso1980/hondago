@@ -1938,19 +1938,19 @@ table th, table td, .auth-table th, .auth-table td {
     padding: 8px 8px !important;
 }
 .grupo-similar-table th:nth-child(1),
-.grupo-similar-table td:nth-child(1) { width: 58px; }
+.grupo-similar-table td:nth-child(1) { width: 50px; }
 .grupo-similar-table th:nth-child(2),
 .grupo-similar-table td:nth-child(2) { width: 36px; }
 .grupo-similar-table th:nth-child(3),
-.grupo-similar-table td:nth-child(3) { width: 130px; }
+.grupo-similar-table td:nth-child(3) { width: 120px; }
 .grupo-similar-table th:nth-child(4),
-.grupo-similar-table td:nth-child(4) { width: 54px; }
+.grupo-similar-table td:nth-child(4) { width: 44px; }
 .grupo-similar-table th:nth-child(5),
-.grupo-similar-table td:nth-child(5) { width: 46px; }
+.grupo-similar-table td:nth-child(5) { width: 42px; }
 .grupo-similar-table th:nth-child(6),
-.grupo-similar-table td:nth-child(6) { width: 46px; }
+.grupo-similar-table td:nth-child(6) { width: 42px; }
 .grupo-similar-table th:nth-child(7),
-.grupo-similar-table td:nth-child(7) { width: 70px; }
+.grupo-similar-table td:nth-child(7) { width: 82px; }
 .grupo-similar-table th:nth-child(7),
 .grupo-similar-table td:nth-child(7) {
     padding-right: 4px !important;
