@@ -279,6 +279,26 @@ func subtractBusinessDays(from time.Time, days int, holidays map[string]struct{}
 	return d
 }
 
+func nextBusinessDay(from time.Time, holidays map[string]struct{}) time.Time {
+	d := from
+	for !isBusinessDay(d, holidays) {
+		d = d.AddDate(0, 0, 1)
+	}
+	return d
+}
+
+func addBusinessDays(from time.Time, days int, holidays map[string]struct{}) time.Time {
+	d := from
+	remaining := days
+	for remaining > 0 {
+		d = d.AddDate(0, 0, 1)
+		if isBusinessDay(d, holidays) {
+			remaining--
+		}
+	}
+	return d
+}
+
 func monthsBetween(a time.Time, b time.Time) int64 {
 	ay, am, _ := a.Date()
 	by, bm, _ := b.Date()
@@ -304,8 +324,17 @@ func calculateParcelasFromGrupoAtivo(rec *db.GrupoAtivoRecord, holidays map[stri
 		return 0
 	}
 	ref := now.In(utcMinus3Loc)
-	due := dueDateForMonth(ref.Year(), ref.Month(), rec.Vencimento)
-	cutoff := subtractBusinessDays(due, 0, holidays)
+	dueNominal := dueDateForMonth(ref.Year(), ref.Month(), rec.Vencimento)
+	dueEffective := nextBusinessDay(dueNominal, holidays)
+	// Regra de virada:
+	// assembleia ocorre 3 dias uteis apos o vencimento efetivo;
+	// vira quando faltarem 2 dias uteis para assembleia,
+	// o que equivale a 1 dia util apos o vencimento efetivo.
+	//
+	// Ajuste fino: a virada so acontece no fim desse dia (23:59:59),
+	// efetivando na madrugada do dia seguinte.
+	triggerDay := addBusinessDays(dueEffective, 1, holidays)
+	cutoff := time.Date(triggerDay.Year(), triggerDay.Month(), triggerDay.Day(), 0, 0, 0, 0, utcMinus3Loc).AddDate(0, 0, 1)
 	cycleRef := time.Date(ref.Year(), ref.Month(), 1, 0, 0, 0, 0, utcMinus3Loc)
 	if !ref.Before(cutoff) {
 		cycleRef = cycleRef.AddDate(0, 1, 0)

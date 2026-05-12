@@ -1708,8 +1708,9 @@ func (s *Store) CountSolicitacoesByGrupoInPeriodo(ctx context.Context, fromDate,
 	}
 	refDate = refDate.In(utcMinus3Loc)
 
-	// Regra da tela: base sempre no mes da Data Final.
-	// Janela vai do vencimento do mes anterior ate o vencimento do mes da Data Final.
+	// Regra da tela: usar ciclo ativo na Data Final.
+	// Se Data Final >= vencimento do mes atual: janela = [vencimento mes atual, Data Final].
+	// Se Data Final < vencimento do mes atual: janela = [vencimento mes anterior, Data Final].
 	refMonthStart := time.Date(refDate.Year(), refDate.Month(), 1, 0, 0, 0, 0, utcMinus3Loc)
 	prevMonthStart := refMonthStart.AddDate(0, -1, 0)
 	refMonthEnd := refMonthStart.AddDate(0, 1, -1)
@@ -1756,8 +1757,14 @@ WHERE ` + baseDateExpr + ` >= ? AND ` + baseDateExpr + ` <= ?
 			continue
 		}
 		dt = dt.In(utcMinus3Loc)
-		start := dueDateForGroupMonth(refDate.Year(), refDate.Month()-1, dueDay)
-		end := dueDateForGroupMonth(refDate.Year(), refDate.Month(), dueDay)
+		dueCurrent := dueDateForGroupMonth(refDate.Year(), refDate.Month(), dueDay)
+		var start time.Time
+		if refDate.Equal(dueCurrent) || refDate.After(dueCurrent) {
+			start = dueCurrent
+		} else {
+			start = dueDateForGroupMonth(refDate.Year(), refDate.Month()-1, dueDay)
+		}
+		end := refDate
 		if (dt.Equal(start) || dt.After(start)) && (dt.Equal(end) || dt.Before(end)) {
 			out[g]++
 		}
