@@ -2169,6 +2169,62 @@ WHERE id=?`),
 			strings.TrimSpace(r.LanceContemplacao),
 			r.ID,
 		)
+		if err != nil && requestServedColsMissingErr(err) {
+			_, err = s.DB.ExecContext(
+				ctx,
+				s.bind(`UPDATE requests
+SET requested_at=?,
+    requester_user_id=?,
+    vendor_identity_id=?,
+    api_account_id=?,
+    requested_date=?,
+    requested_time=?,
+    branch=?,
+    seller_name=?,
+    cpf=?,
+    model_name=?,
+    licensed=?,
+    installments=?,
+    bid_percent=?,
+    with_restriction=?,
+    group_code=?,
+    notes=?,
+    requested_quota_id=?,
+    served_group=?,
+    quota_rd=?,
+    served_at=?,
+    served_date=?,
+    served_time=?,
+    status=?,
+    contemplation_bid=?
+WHERE id=?`),
+				nullStringArg(r.DataHoraSolicitacao),
+				nullIntArg(relationIDs.RequesterUserID),
+				nullIntArg(relationIDs.VendorIdentityID),
+				nullIntArg(relationIDs.APIAccountID),
+				nullStringArg(dataSolicitacao),
+				nullStringArg(horaSolicitacao),
+				strings.TrimSpace(r.Filial),
+				strings.TrimSpace(r.Vendedor),
+				strings.TrimSpace(r.CPF),
+				strings.TrimSpace(r.Modelo),
+				strings.TrimSpace(r.Plano),
+				nullIntArg(r.QtdeParcelas),
+				nullFloatArg(r.PercLance),
+				strings.TrimSpace(r.ComRestricao),
+				nullIntArg(r.Grupo),
+				strings.TrimSpace(r.Notes),
+				nullIntArg(r.IDCota),
+				nullIntArg(r.GrupoAtendido),
+				strings.TrimSpace(r.CotaRD),
+				nullStringArg(r.DataHoraAtendimento),
+				nullStringArg(dataAtendimento),
+				nullStringArg(horaAtendimento),
+				strings.TrimSpace(r.Situacao),
+				strings.TrimSpace(r.LanceContemplacao),
+				r.ID,
+			)
+		}
 		if err != nil {
 			return 0, err
 		}
@@ -2211,10 +2267,53 @@ WHERE id=?`),
  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`),
 		insertArgs...,
 	).Scan(&id)
+	if err != nil && requestServedColsMissingErr(err) {
+		legacyInsertArgs := []any{
+			nullStringArg(r.DataHoraSolicitacao),
+			nullIntArg(relationIDs.RequesterUserID),
+			nullIntArg(relationIDs.VendorIdentityID),
+			nullIntArg(relationIDs.APIAccountID),
+			nullStringArg(dataSolicitacao),
+			nullStringArg(horaSolicitacao),
+			strings.TrimSpace(r.Filial),
+			strings.TrimSpace(r.Vendedor),
+			strings.TrimSpace(r.CPF),
+			strings.TrimSpace(r.Modelo),
+			strings.TrimSpace(r.Plano),
+			nullIntArg(r.QtdeParcelas),
+			nullFloatArg(r.PercLance),
+			strings.TrimSpace(r.ComRestricao),
+			nullIntArg(r.Grupo),
+			strings.TrimSpace(r.Notes),
+			nullIntArg(r.IDCota),
+			nullIntArg(r.GrupoAtendido),
+			strings.TrimSpace(r.CotaRD),
+			nullStringArg(r.DataHoraAtendimento),
+			nullStringArg(dataAtendimento),
+			nullStringArg(horaAtendimento),
+			strings.TrimSpace(r.Situacao),
+			strings.TrimSpace(r.LanceContemplacao),
+		}
+		err = s.DB.QueryRowContext(
+			ctx,
+			s.bind(`INSERT INTO requests
+ (requested_at, requester_user_id, vendor_identity_id, api_account_id, requested_date, requested_time, branch, seller_name, cpf, model_name, licensed, installments, bid_percent, with_restriction, group_code, notes, requested_quota_id, served_group, quota_rd, served_at, served_date, served_time, status, contemplation_bid)
+ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`),
+			legacyInsertArgs...,
+		).Scan(&id)
+	}
 	if err != nil {
 		return 0, err
 	}
 	return id, nil
+}
+
+func requestServedColsMissingErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "installments_served") || strings.Contains(msg, "bid_percent_served")
 }
 
 func (s *Store) getCurrentSolicitacaoRelationIDs(ctx context.Context, requestID int64) (requestRelationIDs, error) {
