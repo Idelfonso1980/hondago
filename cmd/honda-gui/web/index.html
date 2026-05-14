@@ -1428,23 +1428,29 @@
             </select>
           </div>
           <div class="field"><label>Licenciado</label><select id="sol_plano"><option value="N&atilde;o" selected>N&atilde;o</option><option value="Sim">Sim</option></select></div>
+          <div class="field"><label>Grupo</label><input id="sol_grupo" onblur="autoFillSolicitacaoByGroup('sol')" /></div>
+          <div class="field full sol-triplet-row">
+            <div class="sol-triplet-grid">
+              <div class="field"><label>Qtde Parcelas</label><input id="sol_qtde_parcelas" /></div>
+              <div class="field"><label>Perc. Lance</label><input id="sol_perc_lance" /></div>
+              <div class="field"><label>Com Restri&ccedil;&atilde;o</label><select id="sol_com_restricao"><option value="N&atilde;o" selected>N&atilde;o</option><option value="Sim">Sim</option></select></div>
+            </div>
+          </div>
+          <div class="field full"><label>Observa&ccedil;&atilde;o</label><input id="sol_observacao" /></div>
+          <div class="field"><label>ID Cota</label><input id="sol_id_cota" /></div>
           <div class="field">
-            <label>Grupo</label>
+            <label>Grupo Atendido</label>
             <div class="inline-input-action">
-              <input id="sol_grupo" onblur="autoFillSolicitacaoByGroup('sol')" />
+              <input id="sol_grupo_atendido" />
               <button type="button" class="btn search-icon-btn" data-icon="search" title="Buscar grupos semelhantes" aria-label="Buscar grupos semelhantes" onclick="openGrupoSimilarModal()">Buscar</button>
             </div>
           </div>
-          <div class="field"><label>Qtde Parcelas</label><input id="sol_qtde_parcelas" /></div>
-          <div class="field"><label>Perc. Lance</label><input id="sol_perc_lance" /></div>
-          <div class="field"><label>Com Restri&ccedil;&atilde;o</label><select id="sol_com_restricao"><option value="N&atilde;o" selected>N&atilde;o</option><option value="Sim">Sim</option></select></div>
-          <div class="field full"><label>Observa&ccedil;&atilde;o</label><input id="sol_observacao" /></div>
-          <div class="field"><label>ID Cota</label><input id="sol_id_cota" /></div>
-          <div class="field"><label>Grupo Atendido</label><input id="sol_grupo_atendido" /></div>
+          <div class="field"><label>Qtde Parcelas Atendida</label><input id="sol_qtde_parcelas_atendidas" /></div>
+          <div class="field"><label>Perc. Lance Atendido</label><input id="sol_perc_lance_atendido" /></div>
           <div class="field"><label>Cota R/D</label><input id="sol_cota_r_d" /></div>
           <div class="field"><label>Data/Hora Atendimento</label><input id="sol_data_hora_atendimento" /></div>
-          <div class="field full"><label>Situa&ccedil;&atilde;o</label><input id="sol_situacao" /></div>
-          <div class="field full"><label>Lance Contempla&ccedil;&atilde;o</label><input id="sol_lance_contemplacao" /></div>
+          <div class="field"><label>Situa&ccedil;&atilde;o</label><input id="sol_situacao" /></div>
+          <div class="field"><label>Lance Contempla&ccedil;&atilde;o</label><input id="sol_lance_contemplacao" /></div>
         </div>
         <div class="form-footer">
           <button type="button" class="btn" onclick="saveSolicitacao()">Salvar</button>

@@ -71,6 +71,8 @@ func legacySchemas() []tableSchema {
 				"notes" TEXT,
 				"requested_quota_id" INTEGER,
 				"served_group" INTEGER,
+				"installments_served" INTEGER,
+				"bid_percent_served" REAL,
 				"quota_rd" VARCHAR(32),
 				"served_at" DATETIME,
 				"status" VARCHAR(64),
@@ -101,6 +103,8 @@ func legacySchemas() []tableSchema {
 				"notes",
 				"requested_quota_id",
 				"served_group",
+				"installments_served",
+				"bid_percent_served",
 				"quota_rd",
 				"served_at",
 				"status",
@@ -447,6 +451,8 @@ func (s *Store) ensurePostgresSchemaBootstrap(ctx context.Context) error {
 			notes TEXT,
 			requested_quota_id BIGINT,
 			served_group BIGINT,
+			installments_served INTEGER,
+			bid_percent_served DOUBLE PRECISION,
 			quota_rd VARCHAR(32),
 			served_at TIMESTAMP,
 			status VARCHAR(64),
@@ -571,6 +577,8 @@ func (s *Store) ensurePostgresSchemaBootstrap(ctx context.Context) error {
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password SMALLINT NOT NULL DEFAULT 0`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMP`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS temp_password_issued_at TIMESTAMP`,
+		`ALTER TABLE requests ADD COLUMN IF NOT EXISTS installments_served INTEGER`,
+		`ALTER TABLE requests ADD COLUMN IF NOT EXISTS bid_percent_served DOUBLE PRECISION`,
 		`ALTER TABLE role_permissions DROP CONSTRAINT IF EXISTS fk_role_permissions_role`,
 		`ALTER TABLE role_permissions ADD CONSTRAINT fk_role_permissions_role FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE`,
 		`ALTER TABLE api_accounts DROP CONSTRAINT IF EXISTS fk_api_accounts_user`,
@@ -1231,6 +1239,23 @@ func (s *Store) DropLegacyTables(ctx context.Context) (int, error) {
 }
 
 func (s *Store) tableExists(ctx context.Context, tableName string) (bool, error) {
+	if s != nil && s.IsPostgres() {
+		var one int
+		err := s.DB.QueryRowContext(ctx, `
+SELECT 1
+FROM information_schema.tables
+WHERE table_schema = 'public' AND table_name = $1
+LIMIT 1
+`, tableName).Scan(&one)
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+
 	var one int
 	err := s.DB.QueryRowContext(ctx, "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1", tableName).Scan(&one)
 	if err == sql.ErrNoRows {
@@ -1243,6 +1268,23 @@ func (s *Store) tableExists(ctx context.Context, tableName string) (bool, error)
 }
 
 func (s *Store) tableExistsTx(ctx context.Context, tx *sql.Tx, tableName string) (bool, error) {
+	if s != nil && s.IsPostgres() {
+		var one int
+		err := tx.QueryRowContext(ctx, `
+SELECT 1
+FROM information_schema.tables
+WHERE table_schema = 'public' AND table_name = $1
+LIMIT 1
+`, tableName).Scan(&one)
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+
 	var one int
 	err := tx.QueryRowContext(ctx, "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1", tableName).Scan(&one)
 	if err == sql.ErrNoRows {

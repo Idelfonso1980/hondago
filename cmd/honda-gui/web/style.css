@@ -1189,7 +1189,15 @@
     }
 
     .auth-edit-grid .field.full { grid-column: span 2; }
-
+    .sol-triplet-row {
+      padding: 0;
+      margin: 0;
+    }
+    .sol-triplet-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
     .field .readonly {
       background: #eef2f7;
       color: #4b5563;
@@ -1790,6 +1798,7 @@
       .auth-edit-grid { grid-template-columns: 1fr; }
       .field.full { grid-column: span 1; }
       .auth-edit-grid .field.full { grid-column: span 1; }
+      .sol-triplet-grid { grid-template-columns: 1fr; }
       .config-row { grid-template-columns: 1fr; }
       .auth-search-row {
         grid-template-columns: 1fr auto;

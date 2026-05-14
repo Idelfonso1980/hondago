@@ -1,7 +1,7 @@
 ﻿const fields = ["config_path","reservar_modo","model_name","produto","group_code","cpf","cod_empre","due_day","requested_quota_id","federal_lottery","acrescimo_decrescimo","group_type","limit","cooldown_user_ms","worker_count_go","request_timeout_ms"];
     const dbFields = ["database_path","api_base_url"];
     const authFields = ["auth_id","auth_cpf","auth_cod_empresa","auth_cod_usuario","auth_cod_concessionaria","auth_senha","auth_token","auth_token_b3","auth_last_request","auth_cooldown_until","auth_blocked_until","auth_in_flight","auth_error_401_count","auth_error_429_count","auth_priority_score"];
-    const solicitacaoFields = ["sol_id","sol_data_hora_solicitacao","sol_filial","sol_vendedor","sol_cpf","sol_modelo","sol_plano","sol_qtde_parcelas","sol_perc_lance","sol_com_restricao","sol_grupo","sol_observacao","sol_id_cota","sol_grupo_atendido","sol_cota_r_d","sol_data_hora_atendimento","sol_situacao","sol_lance_contemplacao"];
+    const solicitacaoFields = ["sol_id","sol_data_hora_solicitacao","sol_filial","sol_vendedor","sol_cpf","sol_modelo","sol_plano","sol_qtde_parcelas","sol_perc_lance","sol_com_restricao","sol_grupo","sol_observacao","sol_id_cota","sol_grupo_atendido","sol_qtde_parcelas_atendidas","sol_perc_lance_atendido","sol_cota_r_d","sol_data_hora_atendimento","sol_situacao","sol_lance_contemplacao"];
     const idsgFields = ["idsg_id","idsg_id_grupo","idsg_produto","idsg_vencimento","idsg_prazo","idsg_tipo","idsg_grupo","idsg_cota","idsg_r","idsg_d","idsg_parcelas_calc","idsg_booked","idsg_created_at","idsg_participantes","idsg_failed"];
     const gruposAtivosFields = ["ga_id","ga_grupo","ga_vencimento","ga_qtd_participantes","ga_data_assembleia_inaugural","ga_plano","ga_prazo","ga_tipo_grupo","ga_modelos","ga_status","ga_created_at","ga_updated_at"];
     const appUserFields = ["appuser_id","appuser_username","appuser_display_name","appuser_phone","appuser_cpf","appuser_filial","appuser_email","appuser_role","appuser_supervisor","appuser_manager","appuser_is_active","appuser_password","appuser_failed_login_attempts","appuser_locked_until","appuser_last_login_at","appuser_updated_at","appuser_created_at"];
@@ -2182,10 +2182,13 @@
       document.getElementById("sol_observacao").value = data.notes || "";
       document.getElementById("sol_id_cota").value = data.requested_quota_id || "";
       document.getElementById("sol_grupo_atendido").value = data.served_group || "";
+      document.getElementById("sol_qtde_parcelas_atendidas").value = data.installments_served || "";
+      document.getElementById("sol_perc_lance_atendido").value = formatPercentInputValue(data.bid_percent_served || "");
       document.getElementById("sol_cota_r_d").value = data.quota_rd || "";
       document.getElementById("sol_data_hora_atendimento").value = formatDateTimeBR(data.served_at || "");
       document.getElementById("sol_situacao").value = data.status || "";
       document.getElementById("sol_lance_contemplacao").value = data.contemplation_bid || "";
+      syncSolicitacaoAtendidoDefaults();
       syncSolicitacaoParcelasByGrupo();
     }
 
@@ -2205,11 +2208,31 @@
         notes: document.getElementById("sol_observacao").value || "",
         requested_quota_id: document.getElementById("sol_id_cota").value || "",
         served_group: document.getElementById("sol_grupo_atendido").value || "",
+        installments_served: document.getElementById("sol_qtde_parcelas_atendidas").value || "",
+        bid_percent_served: percentInputToRaw(document.getElementById("sol_perc_lance_atendido").value || ""),
         quota_rd: document.getElementById("sol_cota_r_d").value || "",
         served_at: document.getElementById("sol_data_hora_atendimento").value || "",
         status: document.getElementById("sol_situacao").value || "",
         contemplation_bid: document.getElementById("sol_lance_contemplacao").value || ""
       };
+    }
+
+    function syncSolicitacaoAtendidoDefaults(){
+      const grupo = document.getElementById("sol_grupo");
+      const parcelas = document.getElementById("sol_qtde_parcelas");
+      const lance = document.getElementById("sol_perc_lance");
+      const grupoAtendido = document.getElementById("sol_grupo_atendido");
+      const parcelasAtendidas = document.getElementById("sol_qtde_parcelas_atendidas");
+      const lanceAtendido = document.getElementById("sol_perc_lance_atendido");
+      if (grupoAtendido && !String(grupoAtendido.value || "").trim()) {
+        grupoAtendido.value = String(grupo && grupo.value ? grupo.value : "");
+      }
+      if (parcelasAtendidas && !String(parcelasAtendidas.value || "").trim()) {
+        parcelasAtendidas.value = String(parcelas && parcelas.value ? parcelas.value : "");
+      }
+      if (lanceAtendido && !String(lanceAtendido.value || "").trim()) {
+        lanceAtendido.value = formatPercentInputValue(String(lance && lance.value ? lance.value : ""));
+      }
     }
 
     function localDateTimeISOSeconds(){
@@ -2820,6 +2843,7 @@
 
     function openSolicitacaoCreateModal(){
       clearSolicitacaoForm();
+      syncSolicitacaoAtendidoDefaults();
       const t = document.getElementById("solicitacaoModalTitle");
       if (t) t.textContent = "Nova SolicitaÃ§Ã£o";
       loadSolicitarModeloOptions("", "sol_modelo", "Selecione o modelo");
@@ -2843,6 +2867,7 @@
       }
       await loadSolicitarModeloOptions(data.model_name || "", "sol_modelo", "Selecione o modelo");
       fillSolicitacaoForm(data);
+      syncSolicitacaoAtendidoDefaults();
       document.getElementById("solicitacaoEditModal").classList.remove("hidden");
       setStatus("SolicitaÃ§Ã£o carregada");
     }
@@ -4546,10 +4571,10 @@
     }
 
     async function searchGrupoSemelhante(){
-      const groupEl = document.getElementById("sol_grupo");
+      const groupEl = document.getElementById("sol_grupo_atendido") || document.getElementById("sol_grupo");
       const code = String((groupEl && groupEl.value) || "").replace(/\D/g, "");
-      const installments = String((document.getElementById("sol_qtde_parcelas")?.value || "")).trim();
-      const bidRaw = percentInputToRaw(document.getElementById("sol_perc_lance")?.value || "");
+      const installments = String((document.getElementById("sol_qtde_parcelas_atendidas")?.value || document.getElementById("sol_qtde_parcelas")?.value || "")).trim();
+      const bidRaw = percentInputToRaw(document.getElementById("sol_perc_lance_atendido")?.value || document.getElementById("sol_perc_lance")?.value || "");
       let url = "";
       let modeByGroup = true;
       if (code) {
@@ -4595,12 +4620,23 @@
     async function selectGrupoSemelhante(groupCode){
       const code = String(groupCode || "").replace(/\D/g, "");
       if (!code) return;
-      const groupEl = document.getElementById("sol_grupo");
+      const groupEl = document.getElementById("sol_grupo_atendido");
       if (groupEl) groupEl.value = code;
+      const selected = Array.isArray(grupoSimilarRows)
+        ? grupoSimilarRows.find((g) => String(g.group_code || "").replace(/\D/g, "") === code)
+        : null;
+      if (selected) {
+        const parcelasAtendidasEl = document.getElementById("sol_qtde_parcelas_atendidas");
+        if (parcelasAtendidasEl) {
+          parcelasAtendidasEl.value = String(selected.parcelas || "").trim();
+        }
+        const percAtendidoEl = document.getElementById("sol_perc_lance_atendido");
+        if (percAtendidoEl) {
+          percAtendidoEl.value = formatPercentInputValue(String(selected.bid_percent || ""));
+        }
+      }
       closeGrupoSimilarModal();
-      await autoFillSolicitacaoByGroup("sol");
-      await syncSolicitacaoParcelasByGrupo(true);
-      setStatus("Grupo aplicado na solicitação");
+      setStatus("Grupo atendido, parcelas e lance atendido aplicados");
     }
 
     async function uploadDatabaseRestore(input) {
@@ -5235,6 +5271,11 @@
     });
     document.getElementById("sol_perc_lance").addEventListener("blur", () => {
       const el = document.getElementById("sol_perc_lance");
+      if (!el) return;
+      el.value = formatPercentInputValue(el.value || "");
+    });
+    document.getElementById("sol_perc_lance_atendido").addEventListener("blur", () => {
+      const el = document.getElementById("sol_perc_lance_atendido");
       if (!el) return;
       el.value = formatPercentInputValue(el.value || "");
     });

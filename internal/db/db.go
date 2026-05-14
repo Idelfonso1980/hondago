@@ -271,6 +271,8 @@ type SolicitacaoRecord struct {
 	Notes               string
 	IDCota              sql.NullInt64
 	GrupoAtendido       sql.NullInt64
+	QtdeParcelasAtendidas sql.NullInt64
+	PercLanceAtendido   sql.NullFloat64
 	CotaRD              string
 	DataHoraAtendimento sql.NullString
 	DataAtendimento     sql.NullString
@@ -1569,6 +1571,8 @@ CASE WHEN TRIM(COALESCE(CAST(group_code AS TEXT), '')) = '' THEN NULL ELSE CAST(
 CAST(COALESCE(notes, '') AS TEXT) AS notes,
 CASE WHEN TRIM(COALESCE(CAST(requested_quota_id AS TEXT), '')) = '' THEN NULL ELSE CAST(CAST(requested_quota_id AS TEXT) AS INTEGER) END AS requested_quota_id,
 CASE WHEN TRIM(COALESCE(CAST(served_group AS TEXT), '')) = '' THEN NULL ELSE CAST(CAST(served_group AS TEXT) AS INTEGER) END AS served_group,
+CASE WHEN TRIM(COALESCE(CAST(installments_served AS TEXT), '')) = '' THEN NULL ELSE CAST(REPLACE(CAST(installments_served AS TEXT), ',', '.') AS INTEGER) END AS installments_served,
+CASE WHEN TRIM(COALESCE(CAST(bid_percent_served AS TEXT), '')) = '' THEN NULL ELSE CAST(REPLACE(CAST(bid_percent_served AS TEXT), ',', '.') AS REAL) END AS bid_percent_served,
 CAST(COALESCE(quota_rd, '') AS TEXT) AS quota_rd,
 served_at,
 served_date,
@@ -1684,7 +1688,7 @@ CAST(COALESCE(contemplation_bid, '') AS TEXT) AS contemplation_bid`
 		var r SolicitacaoRecord
 		if err := rows.Scan(
 			&r.ID, &r.DataHoraSolicitacao, &r.DataSolicitacao, &r.HoraSolicitacao, &r.Filial, &r.Vendedor, &r.CPF, &r.Modelo, &r.Plano, &r.QtdeParcelas,
-			&r.PercLance, &r.ComRestricao, &r.Grupo, &r.Notes, &r.IDCota, &r.GrupoAtendido, &r.CotaRD,
+			&r.PercLance, &r.ComRestricao, &r.Grupo, &r.Notes, &r.IDCota, &r.GrupoAtendido, &r.QtdeParcelasAtendidas, &r.PercLanceAtendido, &r.CotaRD,
 			&r.DataHoraAtendimento, &r.DataAtendimento, &r.HoraAtendimento, &r.Situacao, &r.LanceContemplacao,
 		); err != nil {
 			return nil, err
@@ -1726,10 +1730,11 @@ func (s *Store) CountSolicitacoesByGrupoInPeriodo(ctx context.Context, fromDate,
 	}
 
 	baseDateExpr := `COALESCE(NULLIF(SUBSTR(TRIM(CAST(requested_date AS TEXT)), 1, 10), ''), SUBSTR(TRIM(CAST(requested_at AS TEXT)), 1, 10))`
-	query := `SELECT CAST(COALESCE(NULLIF(CAST(group_code AS TEXT), ''), '0') AS INTEGER) AS grupo_num, ` + baseDateExpr + ` AS dt
+	effectiveGroupExpr := `CAST(COALESCE(NULLIF(CAST(served_group AS TEXT), ''), NULLIF(CAST(group_code AS TEXT), ''), '0') AS INTEGER)`
+	query := `SELECT ` + effectiveGroupExpr + ` AS grupo_num, ` + baseDateExpr + ` AS dt
 FROM requests
 WHERE ` + baseDateExpr + ` >= ? AND ` + baseDateExpr + ` <= ?
-  AND CAST(COALESCE(NULLIF(CAST(group_code AS TEXT), ''), '0') AS INTEGER) > 0`
+  AND ` + effectiveGroupExpr + ` > 0`
 
 	rows, err := s.DB.QueryContext(ctx, s.bind(query), broadFrom, broadTo)
 	if err != nil {
@@ -1879,6 +1884,8 @@ CASE WHEN TRIM(COALESCE(CAST(group_code AS TEXT), '')) = '' THEN NULL ELSE CAST(
 CAST(COALESCE(notes, '') AS TEXT) AS notes,
 CASE WHEN TRIM(COALESCE(CAST(requested_quota_id AS TEXT), '')) = '' THEN NULL ELSE CAST(CAST(requested_quota_id AS TEXT) AS INTEGER) END AS requested_quota_id,
 CASE WHEN TRIM(COALESCE(CAST(served_group AS TEXT), '')) = '' THEN NULL ELSE CAST(CAST(served_group AS TEXT) AS INTEGER) END AS served_group,
+CASE WHEN TRIM(COALESCE(CAST(installments_served AS TEXT), '')) = '' THEN NULL ELSE CAST(REPLACE(CAST(installments_served AS TEXT), ',', '.') AS INTEGER) END AS installments_served,
+CASE WHEN TRIM(COALESCE(CAST(bid_percent_served AS TEXT), '')) = '' THEN NULL ELSE CAST(REPLACE(CAST(bid_percent_served AS TEXT), ',', '.') AS REAL) END AS bid_percent_served,
 CAST(COALESCE(quota_rd, '') AS TEXT) AS quota_rd,
 served_at,
 served_date,
@@ -1894,7 +1901,7 @@ LIMIT 1`),
 	var r SolicitacaoRecord
 	if err := row.Scan(
 		&r.ID, &r.DataHoraSolicitacao, &r.DataSolicitacao, &r.HoraSolicitacao, &r.Filial, &r.Vendedor, &r.CPF, &r.Modelo, &r.Plano, &r.QtdeParcelas,
-		&r.PercLance, &r.ComRestricao, &r.Grupo, &r.Notes, &r.IDCota, &r.GrupoAtendido, &r.CotaRD,
+		&r.PercLance, &r.ComRestricao, &r.Grupo, &r.Notes, &r.IDCota, &r.GrupoAtendido, &r.QtdeParcelasAtendidas, &r.PercLanceAtendido, &r.CotaRD,
 		&r.DataHoraAtendimento, &r.DataAtendimento, &r.HoraAtendimento, &r.Situacao, &r.LanceContemplacao,
 	); err != nil {
 		return nil, err
@@ -2054,6 +2061,8 @@ CASE WHEN TRIM(COALESCE(CAST(group_code AS TEXT), '')) = '' THEN NULL ELSE CAST(
 CAST(COALESCE(notes, '') AS TEXT) AS notes,
 CASE WHEN TRIM(COALESCE(CAST(requested_quota_id AS TEXT), '')) = '' THEN NULL ELSE CAST(CAST(requested_quota_id AS TEXT) AS INTEGER) END AS requested_quota_id,
 CASE WHEN TRIM(COALESCE(CAST(served_group AS TEXT), '')) = '' THEN NULL ELSE CAST(CAST(served_group AS TEXT) AS INTEGER) END AS served_group,
+CASE WHEN TRIM(COALESCE(CAST(installments_served AS TEXT), '')) = '' THEN NULL ELSE CAST(REPLACE(CAST(installments_served AS TEXT), ',', '.') AS INTEGER) END AS installments_served,
+CASE WHEN TRIM(COALESCE(CAST(bid_percent_served AS TEXT), '')) = '' THEN NULL ELSE CAST(REPLACE(CAST(bid_percent_served AS TEXT), ',', '.') AS REAL) END AS bid_percent_served,
 CAST(COALESCE(quota_rd, '') AS TEXT) AS quota_rd,
 served_at,
 served_date,
@@ -2067,7 +2076,7 @@ WHERE id=?`),
 	var r SolicitacaoRecord
 	if err := row.Scan(
 		&r.ID, &r.DataHoraSolicitacao, &r.DataSolicitacao, &r.HoraSolicitacao, &r.Filial, &r.Vendedor, &r.CPF, &r.Modelo, &r.Plano, &r.QtdeParcelas,
-		&r.PercLance, &r.ComRestricao, &r.Grupo, &r.Notes, &r.IDCota, &r.GrupoAtendido, &r.CotaRD,
+		&r.PercLance, &r.ComRestricao, &r.Grupo, &r.Notes, &r.IDCota, &r.GrupoAtendido, &r.QtdeParcelasAtendidas, &r.PercLanceAtendido, &r.CotaRD,
 		&r.DataHoraAtendimento, &r.DataAtendimento, &r.HoraAtendimento, &r.Situacao, &r.LanceContemplacao,
 	); err != nil {
 		return nil, err
@@ -2123,6 +2132,8 @@ SET requested_at=?,
     notes=?,
     requested_quota_id=?,
     served_group=?,
+    installments_served=?,
+    bid_percent_served=?,
     quota_rd=?,
     served_at=?,
     served_date=?,
@@ -2148,6 +2159,8 @@ WHERE id=?`),
 			strings.TrimSpace(r.Notes),
 			nullIntArg(r.IDCota),
 			nullIntArg(r.GrupoAtendido),
+			nullIntArg(r.QtdeParcelasAtendidas),
+			nullFloatArg(r.PercLanceAtendido),
 			strings.TrimSpace(r.CotaRD),
 			nullStringArg(r.DataHoraAtendimento),
 			nullStringArg(dataAtendimento),
@@ -2181,6 +2194,8 @@ WHERE id=?`),
 		strings.TrimSpace(r.Notes),
 		nullIntArg(r.IDCota),
 		nullIntArg(r.GrupoAtendido),
+		nullIntArg(r.QtdeParcelasAtendidas),
+		nullFloatArg(r.PercLanceAtendido),
 		strings.TrimSpace(r.CotaRD),
 		nullStringArg(r.DataHoraAtendimento),
 		nullStringArg(dataAtendimento),
@@ -2192,8 +2207,8 @@ WHERE id=?`),
 	err = s.DB.QueryRowContext(
 		ctx,
 		s.bind(`INSERT INTO requests
- (requested_at, requester_user_id, vendor_identity_id, api_account_id, requested_date, requested_time, branch, seller_name, cpf, model_name, licensed, installments, bid_percent, with_restriction, group_code, notes, requested_quota_id, served_group, quota_rd, served_at, served_date, served_time, status, contemplation_bid)
- VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`),
+ (requested_at, requester_user_id, vendor_identity_id, api_account_id, requested_date, requested_time, branch, seller_name, cpf, model_name, licensed, installments, bid_percent, with_restriction, group_code, notes, requested_quota_id, served_group, installments_served, bid_percent_served, quota_rd, served_at, served_date, served_time, status, contemplation_bid)
+ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`),
 		insertArgs...,
 	).Scan(&id)
 	if err != nil {

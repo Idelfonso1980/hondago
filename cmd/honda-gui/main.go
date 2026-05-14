@@ -467,6 +467,8 @@ type solicitacaoPayload struct {
 	Notes               string `json:"notes"`
 	IDCota              string `json:"requested_quota_id"`
 	GrupoAtendido       string `json:"served_group"`
+	QtdeParcelasAtendidas string `json:"installments_served"`
+	PercLanceAtendido   string `json:"bid_percent_served"`
 	CotaRD              string `json:"quota_rd"`
 	DataHoraAtendimento string `json:"served_at"`
 	Situacao            string `json:"status"`
@@ -2246,6 +2248,12 @@ func solicitacaoToPayload(r *db.SolicitacaoRecord) solicitacaoPayload {
 	if r.GrupoAtendido.Valid {
 		out.GrupoAtendido = strconv.FormatInt(r.GrupoAtendido.Int64, 10)
 	}
+	if r.QtdeParcelasAtendidas.Valid {
+		out.QtdeParcelasAtendidas = strconv.FormatInt(r.QtdeParcelasAtendidas.Int64, 10)
+	}
+	if r.PercLanceAtendido.Valid {
+		out.PercLanceAtendido = strconv.FormatFloat(r.PercLanceAtendido.Float64, 'f', -1, 64)
+	}
 	if r.DataHoraAtendimento.Valid {
 		out.DataHoraAtendimento = r.DataHoraAtendimento.String
 	}
@@ -2333,7 +2341,13 @@ func (a *app) handleSolicitacoesSearch(w http.ResponseWriter, r *http.Request) {
 	for i := range records {
 		item := solicitacaoToPayload(&records[i])
 		groupCode := int64(0)
-		if records[i].Grupo.Valid {
+		if records[i].GrupoAtendido.Valid {
+			groupCode = records[i].GrupoAtendido.Int64
+		} else if gtxt := strings.TrimSpace(item.GrupoAtendido); gtxt != "" {
+			if gparsed, perr := strconv.ParseInt(gtxt, 10, 64); perr == nil {
+				groupCode = gparsed
+			}
+		} else if records[i].Grupo.Valid {
 			groupCode = records[i].Grupo.Int64
 		} else if gtxt := strings.TrimSpace(item.Grupo); gtxt != "" {
 			if gparsed, perr := strconv.ParseInt(gtxt, 10, 64); perr == nil {
@@ -2819,6 +2833,16 @@ func (a *app) handleSolicitacaoSave(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, fmt.Errorf("requested_quota_id invÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡lido"))
 		return
 	}
+	qtdeParcelasAtendidas, err := parseNullInt64(p.QtdeParcelasAtendidas)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("installments_served invalido"))
+		return
+	}
+	percLanceAtendido, err := parseNullFloat64(p.PercLanceAtendido)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("bid_percent_served invalido"))
+		return
+	}
 
 	rec := db.SolicitacaoRecord{
 		ID: p.ID,
@@ -2844,6 +2868,8 @@ func (a *app) handleSolicitacaoSave(w http.ResponseWriter, r *http.Request) {
 		Notes:         strings.TrimSpace(p.Notes),
 		IDCota:        idCota,
 		GrupoAtendido: grupoAtendido,
+		QtdeParcelasAtendidas: qtdeParcelasAtendidas,
+		PercLanceAtendido: percLanceAtendido,
 		CotaRD:        strings.TrimSpace(p.CotaRD),
 		DataHoraAtendimento: sql.NullString{String: func() string {
 			v := strings.TrimSpace(p.DataHoraAtendimento)
@@ -5878,9 +5904,7 @@ func (a *app) openStoreFromCurrentConfig() (*config.Config, *db.Store, error) {
 	defer a.mu.Unlock()
 
 	cfgPath := strings.TrimSpace(a.configPath)
-	if cfgPath == "" {
-		cfgPath = "config.ini"
-	}
+	cfgPath = resolveConfigPath(cfgPath)
 
 	cfg, err := config.LoadFromINI(cfgPath)
 	if err != nil {
@@ -5908,6 +5932,26 @@ func (a *app) openStoreFromCurrentConfig() (*config.Config, *db.Store, error) {
 	a.cfg = cfg
 	a.store = store
 	return a.cfg, a.store, nil
+}
+
+func resolveConfigPath(preferred string) string {
+	candidates := make([]string, 0, 4)
+	if p := strings.TrimSpace(preferred); p != "" {
+		candidates = append(candidates, p)
+	}
+	candidates = append(candidates, "config.ini")
+	if exe, err := os.Executable(); err == nil && strings.TrimSpace(exe) != "" {
+		candidates = append(candidates, filepath.Join(filepath.Dir(exe), "config.ini"))
+	}
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	if strings.TrimSpace(preferred) != "" {
+		return preferred
+	}
+	return "config.ini"
 }
 
 func (a *app) closeStore() {
