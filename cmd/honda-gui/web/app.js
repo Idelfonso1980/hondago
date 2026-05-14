@@ -2195,7 +2195,7 @@
     function gatherSolicitacaoForm(){
       return {
         id: Number(document.getElementById("sol_id").value || 0),
-        requested_at: document.getElementById("sol_data_hora_solicitacao").value || "",
+        requested_at: normalizeDateTimeForAPI(document.getElementById("sol_data_hora_solicitacao").value || ""),
         branch: document.getElementById("sol_filial").value || "",
         seller_name: document.getElementById("sol_vendedor").value || "",
         cpf: (document.getElementById("sol_cpf").value || "").replace(/\D/g, ""),
@@ -2211,10 +2211,27 @@
         installments_served: document.getElementById("sol_qtde_parcelas_atendidas").value || "",
         bid_percent_served: percentInputToRaw(document.getElementById("sol_perc_lance_atendido").value || ""),
         quota_rd: document.getElementById("sol_cota_r_d").value || "",
-        served_at: document.getElementById("sol_data_hora_atendimento").value || "",
+        served_at: normalizeDateTimeForAPI(document.getElementById("sol_data_hora_atendimento").value || ""),
         status: document.getElementById("sol_situacao").value || "",
         contemplation_bid: document.getElementById("sol_lance_contemplacao").value || ""
       };
+    }
+
+    function normalizeDateTimeForAPI(value){
+      const s = String(value || "").trim();
+      if (!s) return "";
+      // dd/mm/yyyy hh:mm[:ss] -> yyyy-mm-dd hh:mm:ss
+      const br = s.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})(?::(\d{2}))?$/);
+      if (br) {
+        const sec = String(br[6] || "00").padStart(2, "0");
+        return br[3] + "-" + br[2] + "-" + br[1] + " " + br[4] + ":" + br[5] + ":" + sec;
+      }
+      // yyyy-mm-ddThh:mm or yyyy-mm-dd hh:mm -> yyyy-mm-dd hh:mm:ss
+      const isoNoSec = s.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})$/);
+      if (isoNoSec) {
+        return isoNoSec[1] + "-" + isoNoSec[2] + "-" + isoNoSec[3] + " " + isoNoSec[4] + ":" + isoNoSec[5] + ":00";
+      }
+      return s;
     }
 
     function syncSolicitacaoAtendidoDefaults(){
