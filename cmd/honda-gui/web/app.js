@@ -1201,9 +1201,9 @@
       document.getElementById("auth_senha").value = "";
       document.getElementById("auth_token").value = data.token ?? "";
       document.getElementById("auth_token_b3").value = data.b3_token ?? "";
-      document.getElementById("auth_last_request").value = data.last_request_at ?? "";
-      document.getElementById("auth_cooldown_until").value = data.cooldown_until ?? "";
-      document.getElementById("auth_blocked_until").value = data.blocked_until ?? "";
+      document.getElementById("auth_last_request").value = formatDateTimeBRSeconds(data.last_request_at ?? "");
+      document.getElementById("auth_cooldown_until").value = formatDateTimeBRSeconds(data.cooldown_until ?? "");
+      document.getElementById("auth_blocked_until").value = formatDateTimeBRSeconds(data.blocked_until ?? "");
       document.getElementById("auth_in_flight").value = data.in_flight ?? "";
       document.getElementById("auth_error_401_count").value = data.error_401_count ?? "";
       document.getElementById("auth_error_429_count").value = data.error_429_count ?? "";
@@ -1250,10 +1250,10 @@
       document.getElementById("appuser_is_active").value = data.is_active ? "1" : "0";
       document.getElementById("appuser_password").value = "";
       document.getElementById("appuser_failed_login_attempts").value = data.failed_login_attempts || 0;
-      document.getElementById("appuser_locked_until").value = data.locked_until || "";
-      document.getElementById("appuser_last_login_at").value = data.last_login_at || "";
-      document.getElementById("appuser_updated_at").value = data.updated_at || "";
-      document.getElementById("appuser_created_at").value = data.created_at || "";
+      document.getElementById("appuser_locked_until").value = formatDateTimeBRSeconds(data.locked_until || "");
+      document.getElementById("appuser_last_login_at").value = formatDateTimeBRSeconds(data.last_login_at || "");
+      document.getElementById("appuser_updated_at").value = formatDateTimeBRSeconds(data.updated_at || "");
+      document.getElementById("appuser_created_at").value = formatDateTimeBRSeconds(data.created_at || "");
     }
 
     function gatherAppUserForm(){
@@ -2160,7 +2160,7 @@
         if (!restricao.value && restricao.options && restricao.options.length > 0) restricao.selectedIndex = 0;
       }
       const dt = document.getElementById("sol_data_hora_solicitacao");
-      if (dt) dt.value = localDateTimeISOSeconds();
+      if (dt) dt.value = formatDateTimeBR(localDateTimeISOSeconds());
     }
 
     function fillSolicitacaoForm(data){
@@ -2169,7 +2169,7 @@
         return;
       }
       document.getElementById("sol_id").value = data.id || "";
-      document.getElementById("sol_data_hora_solicitacao").value = data.requested_at || "";
+      document.getElementById("sol_data_hora_solicitacao").value = formatDateTimeBR(data.requested_at || "");
       document.getElementById("sol_filial").value = data.branch || "";
       document.getElementById("sol_vendedor").value = data.seller_name || "";
       document.getElementById("sol_cpf").value = data.cpf || "";
@@ -2234,6 +2234,20 @@
       return s;
     }
 
+    function normalizeDateTimeForInput(value){
+      const s = String(value || "").trim();
+      if (!s) return "";
+      // yyyy-mm-ddThh:mm[:ss] or yyyy-mm-dd hh:mm[:ss] -> yyyy-mm-dd hh:mm:ss
+      const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
+      if (iso) {
+        const sec = String(iso[6] || "00").padStart(2, "0");
+        return iso[1] + "-" + iso[2] + "-" + iso[3] + " " + iso[4] + ":" + iso[5] + ":" + sec;
+      }
+      // já estiver em pt-BR mantém para não perder compatibilidade visual,
+      // mas o save converte para formato SQL via normalizeDateTimeForAPI.
+      return s;
+    }
+
     function syncSolicitacaoAtendidoDefaults(){
       const grupo = document.getElementById("sol_grupo");
       const parcelas = document.getElementById("sol_qtde_parcelas");
@@ -2281,7 +2295,7 @@
         if (!restricao.value && restricao.options && restricao.options.length > 0) restricao.selectedIndex = 0;
       }
       const dt = document.getElementById("request_data_hora_solicitacao");
-      if (dt) dt.value = localDateTimeISOSeconds();
+      if (dt) dt.value = formatDateTimeBR(localDateTimeISOSeconds());
       const nome = document.getElementById("request_vendedor");
       if (nome) nome.value = currentUserName || "";
       const cpf = document.getElementById("request_cpf");
@@ -2462,7 +2476,7 @@
     function gatherSolicitarCotaForm(){
       return {
         id: 0,
-        requested_at: document.getElementById("request_data_hora_solicitacao").value || localDateTimeISOSeconds(),
+        requested_at: normalizeDateTimeForAPI(document.getElementById("request_data_hora_solicitacao").value || formatDateTimeBR(localDateTimeISOSeconds())),
         branch: document.getElementById("request_filial").value || "",
         seller_name: document.getElementById("request_vendedor").value || "",
         cpf: (document.getElementById("request_cpf").value || "").replace(/\D/g, ""),
@@ -3158,7 +3172,7 @@
       document.getElementById("idsg_d").value = data.d ?? "";
       document.getElementById("idsg_parcelas_calc").value = data.parcelas_calc ?? "";
       document.getElementById("idsg_booked").value = data.booked ?? "";
-      document.getElementById("idsg_created_at").value = data.created_at ?? "";
+      document.getElementById("idsg_created_at").value = formatDateTimeBRSeconds(data.created_at ?? "");
       document.getElementById("idsg_participantes").value = data.participants ?? "";
       document.getElementById("idsg_failed").value = data.failed ?? "";
     }
@@ -3176,7 +3190,7 @@
         r: Number(document.getElementById("idsg_r").value || 0),
         d: Number(document.getElementById("idsg_d").value || 0),
         booked: Number(document.getElementById("idsg_booked").value || 0),
-        created_at: document.getElementById("idsg_created_at").value || "",
+        created_at: normalizeDateTimeForAPI(document.getElementById("idsg_created_at").value || ""),
         participants: Number(document.getElementById("idsg_participantes").value || 0),
         failed: Number(document.getElementById("idsg_failed").value || 0)
       };
@@ -3860,8 +3874,8 @@
       document.getElementById("ga_tipo_grupo").value = data.group_type || "";
       document.getElementById("ga_modelos").value = data.modelos || data.models || "";
       document.getElementById("ga_status").value = normalizeActiveStatus(data.status || "Ativo") === "Inativo" ? "inactive" : "is_active";
-      document.getElementById("ga_created_at").value = data.created_at || "";
-      document.getElementById("ga_updated_at").value = data.updated_at || "";
+      document.getElementById("ga_created_at").value = formatDateTimeBRSeconds(data.created_at || "");
+      document.getElementById("ga_updated_at").value = formatDateTimeBRSeconds(data.updated_at || "");
     }
 
     function gatherGrupoAtivoForm(){
@@ -3876,8 +3890,8 @@
         group_type: document.getElementById("ga_tipo_grupo").value || "",
         Modelos: document.getElementById("ga_modelos").value || "",
         status: document.getElementById("ga_status").value || "is_active",
-        created_at: document.getElementById("ga_created_at").value || "",
-        updated_at: document.getElementById("ga_updated_at").value || "",
+        created_at: normalizeDateTimeForAPI(document.getElementById("ga_created_at").value || ""),
+        updated_at: normalizeDateTimeForAPI(document.getElementById("ga_updated_at").value || ""),
       };
     }
 

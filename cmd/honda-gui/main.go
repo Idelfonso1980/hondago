@@ -2844,16 +2844,19 @@ func (a *app) handleSolicitacaoSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	requestedAtNorm := normalizeDateTimeToSQL(p.DataHoraSolicitacao)
+	servedAtNorm := normalizeDateTimeToSQL(p.DataHoraAtendimento)
+
 	rec := db.SolicitacaoRecord{
 		ID: p.ID,
 		DataHoraSolicitacao: sql.NullString{String: func() string {
-			v := strings.TrimSpace(p.DataHoraSolicitacao)
+			v := strings.TrimSpace(requestedAtNorm)
 			if v == "-" {
 				return ""
 			}
 			return v
 		}(), Valid: func() bool {
-			v := strings.TrimSpace(p.DataHoraSolicitacao)
+			v := strings.TrimSpace(requestedAtNorm)
 			return v != "" && v != "-"
 		}()},
 		Filial:        strings.TrimSpace(p.Filial),
@@ -2872,13 +2875,13 @@ func (a *app) handleSolicitacaoSave(w http.ResponseWriter, r *http.Request) {
 		PercLanceAtendido: percLanceAtendido,
 		CotaRD:        strings.TrimSpace(p.CotaRD),
 		DataHoraAtendimento: sql.NullString{String: func() string {
-			v := strings.TrimSpace(p.DataHoraAtendimento)
+			v := strings.TrimSpace(servedAtNorm)
 			if v == "-" {
 				return ""
 			}
 			return v
 		}(), Valid: func() bool {
-			v := strings.TrimSpace(p.DataHoraAtendimento)
+			v := strings.TrimSpace(servedAtNorm)
 			return v != "" && v != "-"
 		}()},
 		Situacao:          strings.TrimSpace(p.Situacao),
@@ -5932,6 +5935,38 @@ func (a *app) openStoreFromCurrentConfig() (*config.Config, *db.Store, error) {
 	a.cfg = cfg
 	a.store = store
 	return a.cfg, a.store, nil
+}
+
+func normalizeDateTimeToSQL(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" || s == "-" {
+		return ""
+	}
+	layouts := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02 15:04:05",
+		"2006-01-02 15:04",
+		"2006-01-02T15:04:05",
+		"2006-01-02T15:04",
+		"02/01/2006 15:04:05",
+		"02/01/2006 15:04",
+		"2006-01-02",
+		"02/01/2006",
+	}
+	for _, layout := range layouts {
+		t, err := time.Parse(layout, s)
+		if err != nil {
+			continue
+		}
+		switch layout {
+		case "2006-01-02", "02/01/2006":
+			return t.Format("2006-01-02")
+		default:
+			return t.Format("2006-01-02 15:04:05")
+		}
+	}
+	return s
 }
 
 func resolveConfigPath(preferred string) string {
