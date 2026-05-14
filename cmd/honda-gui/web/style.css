@@ -1904,12 +1904,35 @@
       }
       .login-screen {
         grid-template-columns: 1fr;
+        min-height: 100dvh;
       }
       .login-visual {
-        min-height: 220px;
+        min-height: 180px;
+        max-height: 42vh;
       }
       .login-visual-caption h3 {
-        font-size: 26px;
+        font-size: 22px;
+      }
+      .login-visual-caption p {
+        font-size: 13px;
+      }
+      .login-overlay {
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+      .login-form-side {
+        align-items: flex-start;
+        justify-content: center;
+        padding: 12px 12px 18px;
+      }
+      .login-card {
+        width: min(420px, calc(100vw - 24px));
+      }
+      .login-head {
+        padding: 12px 14px;
+      }
+      .login-body {
+        padding: 12px 14px 14px;
       }
     }
 /* --- FASE 2: ESTABILIZACAO VISUAL DAS TABELAS --- */
