@@ -3057,13 +3057,20 @@ func (a *app) reserveSolicitacaoByID(ctx context.Context, cfg *config.Config, st
 		return "", nil, err
 	}
 	model_name := strconv.FormatInt(model_api_id, 10)
-	payloadPreview := map[string]string{
-		"CodEmpresa":        user.CodEmpresa,
-		"CodUsuario":        user.CodUsuario,
-		"CPFCNPJ":           user.CPF,
-		"id_cota_reposicao": strconv.FormatInt(cotaRow.IDGrupo, 10),
-		"model_api_id":      model_name,
-		"product_api_id":    strings.TrimSpace(cotaRow.Produto),
+	payloadPreview := struct {
+		CodEmpresa      string `json:"codEmpresa"`
+		CodUsuario      string `json:"codUsuario"`
+		CPFCNPJ         string `json:"cpfCnpj"`
+		IDCotaReposicao string `json:"idCotaReposicao"`
+		IDModelo        string `json:"idModelo"`
+		IDProduto       string `json:"idProduto"`
+	}{
+		CodEmpresa:      strings.TrimSpace(user.CodEmpresa),
+		CodUsuario:      strings.TrimSpace(user.CodUsuario),
+		CPFCNPJ:         strings.TrimSpace(user.CPF),
+		IDCotaReposicao: strconv.FormatInt(cotaRow.IDGrupo, 10),
+		IDModelo:        model_name,
+		IDProduto:       strings.TrimSpace(cotaRow.Produto),
 	}
 	payloadJSON, _ := json.Marshal(payloadPreview)
 	a.uiLogfTo(logPath, "[go][solicitacao] id=%d payload=%s", id, string(payloadJSON))

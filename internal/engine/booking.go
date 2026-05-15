@@ -232,7 +232,8 @@ func (e *Engine) runDryRun(cotas []db.Cota, users []db.User, m *Metrics) {
 			IDModelo:        e.cfg.Booking.Modelo,
 			IDProduto:       cota.Produto,
 		}
-		log.Printf("[go][dry-run] user=%s cota=%d payload=%+v", user.CodUsuario, cota.IDGrupo, payload)
+		body, _ := json.Marshal(payload)
+		log.Printf("[go][dry-run] user=%s cota=%d payload=%s", user.CodUsuario, cota.IDGrupo, string(body))
 		atomic.AddInt64(&m.Completed, 1)
 		addStatus(m, 0)
 	}
