@@ -404,6 +404,15 @@
       border-color: rgba(153, 27, 27, 0.35);
       background: #fff5f5;
     }
+    .app-confirm-actions {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+      padding: 0 16px 14px;
+      border-top: 1px solid var(--line);
+      margin-top: 4px;
+      padding-top: 12px;
+    }
 
     .btn.btn-execute {
       color: #15803d;

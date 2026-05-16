@@ -58,6 +58,7 @@
     let passwordPolicyOffset = 0;
     let passwordPolicyLimit = 50;
     let passwordPolicyTotal = 0;
+    let appConfirmResolver = null;
 
     function getCookieValue(name) {
       const target = String(name || "").trim();
@@ -372,6 +373,49 @@
       if (ev && ev.target && ev.target.id !== "appMessageModal") return;
       const modal = document.getElementById("appMessageModal");
       if (modal) modal.classList.add("hidden");
+    }
+
+    function openAppConfirmModal(title, body, subtitle){
+      const modal = document.getElementById("appConfirmModal");
+      if (!modal) return;
+      const t = document.getElementById("appConfirmTitle");
+      const s = document.getElementById("appConfirmSubtitle");
+      const b = document.getElementById("appConfirmBody");
+      if (t) t.textContent = String(title || "Sales Ops");
+      if (s) {
+        s.textContent = String(subtitle || "");
+        s.style.display = s.textContent ? "" : "none";
+      }
+      if (b) b.textContent = String(body || "");
+      modal.classList.remove("hidden");
+    }
+
+    function closeAppConfirmModal(ev){
+      if (ev && ev.target && ev.target.id !== "appConfirmModal") return;
+      const modal = document.getElementById("appConfirmModal");
+      if (modal) modal.classList.add("hidden");
+      if (appConfirmResolver) {
+        const resolver = appConfirmResolver;
+        appConfirmResolver = null;
+        resolver(false);
+      }
+    }
+
+    function resolveAppConfirm(ok){
+      const modal = document.getElementById("appConfirmModal");
+      if (modal) modal.classList.add("hidden");
+      if (appConfirmResolver) {
+        const resolver = appConfirmResolver;
+        appConfirmResolver = null;
+        resolver(!!ok);
+      }
+    }
+
+    function confirmDangerModal(message, title){
+      return new Promise((resolve) => {
+        appConfirmResolver = resolve;
+        openAppConfirmModal(title || "Sales Ops", message || "");
+      });
     }
 
     async function copyStatusDetails(){
@@ -1416,7 +1460,7 @@
         return;
       }
       if (!id) return;
-      if (!confirm("Confirma excluir este usuario do sistema")) return;
+      if (!(await confirmDangerModal("Confirma excluir este usuario do sistema"))) return;
       const res = await fetch("/api/appuser/delete?id=" + encodeURIComponent(String(id)), {method: "POST"});
       const data = await res.json();
       if (!res.ok || data.ok === false) {
@@ -2299,6 +2343,12 @@
     }
 
     function clearSolicitarCotaForm(){
+      // Invalida qualquer resposta assíncrona pendente da busca por grupo.
+      requestGrupoParcelasFetchToken++;
+      if (requestGrupoDebounceTimer) {
+        clearTimeout(requestGrupoDebounceTimer);
+        requestGrupoDebounceTimer = null;
+      }
       for (const field of solicitarFields) {
         const el = document.getElementById(field);
         if (el) el.value = "";
@@ -3118,7 +3168,7 @@
 
     async function deleteSolicitacao(id){
       if (!id) return;
-      if (!confirm("Confirma excluir esta solicitacao")) return;
+      if (!(await confirmDangerModal("Confirma excluir esta solicitação"))) return;
       setStatus("Excluindo solicitaÃ§Ã£o");
       const res = await fetch("/api/solicitacoes/delete", {
         method: "POST",
@@ -3406,7 +3456,7 @@
     }
 
     async function deleteIDsGrupo(id){
-      if (!confirm("Confirma excluir este registro")) return;
+      if (!(await confirmDangerModal("Confirma excluir este registro"))) return;
       setStatus("Excluindo registro");
       const res = await fetch("/api/available_group_ids/delete", {
         method: "POST",
@@ -3428,7 +3478,7 @@
         setStatus("Selecione ao menos um registro");
         return;
       }
-      if (!confirm("Confirma excluir os registros selecionados")) return;
+      if (!(await confirmDangerModal("Confirma excluir os registros selecionados"))) return;
       setStatus("Excluindo registros selecionados");
       const res = await fetch("/api/available_group_ids/delete-batch", {
         method: "POST",
@@ -3595,7 +3645,7 @@
     }
 
     async function deleteAssembleia(id){
-      if (!confirm("Confirma excluir este registro")) return;
+      if (!(await confirmDangerModal("Confirma excluir este registro"))) return;
       setStatus("Excluindo assembleia");
       const res = await fetch("/api/assembleias/delete", {
         method: "POST",
@@ -3736,7 +3786,7 @@
     }
 
     async function deleteModelo(id){
-      if (!confirm("Confirma excluir este model_name")) return;
+      if (!(await confirmDangerModal("Confirma excluir este modelo"))) return;
       setStatus("Excluindo model_name");
       const res = await fetch("/api/models/delete", {
         method: "POST",
@@ -3869,7 +3919,7 @@
     }
 
     async function deleteProduto(id){
-      if (!confirm("Confirma excluir este produto")) return;
+      if (!(await confirmDangerModal("Confirma excluir este produto"))) return;
       setStatus("Excluindo produto");
       const res = await fetch("/api/produtos/delete", {
         method: "POST",
@@ -4090,7 +4140,7 @@
     }
 
     async function deleteGrupoAtivo(id){
-      if (!confirm("Confirma excluir este grupo ativo")) return;
+      if (!(await confirmDangerModal("Confirma excluir este grupo ativo"))) return;
       setStatus("Excluindo grupo ativo");
       const res = await fetch("/api/active_groups/delete", {
         method: "POST",
@@ -4128,7 +4178,7 @@
         setStatus("Selecione ao menos um registro");
         return;
       }
-      if (!confirm("Confirma excluir os registros selecionados")) return;
+      if (!(await confirmDangerModal("Confirma excluir os registros selecionados"))) return;
       setStatus("Excluindo grupos ativos selecionados");
       const res = await fetch("/api/active_groups/delete-batch", {
         method: "POST",
@@ -4193,7 +4243,7 @@
     }
 
     async function deleteAuthUser(id){
-      if (!confirm("Confirma excluir este usuario")) return;
+      if (!(await confirmDangerModal("Confirma excluir este usuário"))) return;
       setStatus("Excluindo usuario");
       const res = await fetch("/api/auth/user/delete", {
         method: "POST",
@@ -4488,7 +4538,7 @@
     }
 
     async function deleteReservedCota(id){
-      if (!confirm("Confirma excluir este registro")) return;
+      if (!(await confirmDangerModal("Confirma excluir este registro"))) return;
       setStatus("Excluindo registro");
       const res = await fetch("/api/cotasreservadas/delete", {
         method: "POST",
@@ -4510,7 +4560,7 @@
         setStatus("Selecione ao menos um registro");
         return;
       }
-      if (!confirm("Confirma excluir os registros selecionados")) return;
+      if (!(await confirmDangerModal("Confirma excluir os registros selecionados"))) return;
       setStatus("Excluindo registros selecionados");
       const res = await fetch("/api/cotasreservadas/delete-batch", {
         method: "POST",
@@ -4542,12 +4592,12 @@
     }
 
     async function clearDatabaseTables(){
-      if (!confirm("Confirma excluir todos os dados das tabelas legadas")) return;
+      if (!(await confirmDangerModal("Confirma excluir todos os dados das tabelas legadas"))) return;
       await runDatabaseAction("/api/db/tables/clear", "Excluindo dados das tabelas", "Dados das tabelas excluÃ­dos");
     }
 
     async function dropDatabaseTables(){
-      if (!confirm("Confirma excluir as tabelas legadas do banco")) return;
+      if (!(await confirmDangerModal("Confirma excluir as tabelas legadas do banco"))) return;
       await runDatabaseAction("/api/db/tables/drop", "Excluindo tabelas do banco", "Tabelas excluÃ­das");
     }
 
@@ -5125,7 +5175,7 @@
 
     async function deleteDiagnosticLog(name){
       if (!name) return;
-      if (!confirm("Confirma excluir este log")) return;
+      if (!(await confirmDangerModal("Confirma excluir este log"))) return;
       const res = await fetch("/api/diagnostics/log-delete?name=" + encodeURIComponent(name), {method: "POST"});
       const data = await res.json();
       setStatus(data.message || (data.ok ? "Arquivo removido" : "Falha ao remover arquivo"));
@@ -5138,7 +5188,7 @@
         setStatus("Selecione ao menos um log");
         return;
       }
-      if (!confirm("Confirma excluir os logs selecionados")) return;
+      if (!(await confirmDangerModal("Confirma excluir os logs selecionados"))) return;
       const res = await fetch("/api/diagnostics/log-delete-batch", {
         method: "POST",
         headers: {"Content-Type":"application/json"},

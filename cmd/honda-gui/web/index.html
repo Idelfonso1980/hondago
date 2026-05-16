@@ -1735,6 +1735,22 @@
     </div>
   </div>
 
+  <div id="appConfirmModal" class="modal hidden" onclick="closeAppConfirmModal(event)">
+    <div class="modal-card" style="width:min(520px,96vw);" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <div>
+          <h3 id="appConfirmTitle">Sales Ops</h3>
+          <p class="modal-sub" id="appConfirmSubtitle"></p>
+        </div>
+      </div>
+      <div style="padding:14px 16px; white-space:pre-line;" id="appConfirmBody"></div>
+      <div class="app-confirm-actions">
+        <button type="button" class="btn" onclick="resolveAppConfirm(false)">Cancelar</button>
+        <button type="button" class="btn btn-danger" onclick="resolveAppConfirm(true)">Confirmar Exclusão</button>
+      </div>
+    </div>
+  </div>
+
   <div id="rbacEditModal" class="modal hidden" onclick="closeRBACEditModal(event)">
     <div class="modal-card auth-modal-card" onclick="event.stopPropagation()">
       <div class="modal-head">
