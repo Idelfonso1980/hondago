@@ -1722,6 +1722,19 @@
     </div>
   </div>
 
+  <div id="appMessageModal" class="modal hidden" onclick="closeAppMessageModal(event)">
+    <div class="modal-card" style="width:min(520px,96vw);" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <div>
+          <h3 id="appMessageTitle">Sales Ops</h3>
+          <p class="modal-sub" id="appMessageSubtitle"></p>
+        </div>
+        <button type="button" class="btn clear" onclick="closeAppMessageModal()">Fechar</button>
+      </div>
+      <div style="padding:14px 16px; white-space:pre-line;" id="appMessageBody"></div>
+    </div>
+  </div>
+
   <div id="rbacEditModal" class="modal hidden" onclick="closeRBACEditModal(event)">
     <div class="modal-card auth-modal-card" onclick="event.stopPropagation()">
       <div class="modal-head">

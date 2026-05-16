@@ -353,6 +353,27 @@
       if (modal) modal.classList.add("hidden");
     }
 
+    function openAppMessageModal(title, body, subtitle){
+      const modal = document.getElementById("appMessageModal");
+      if (!modal) return;
+      const t = document.getElementById("appMessageTitle");
+      const s = document.getElementById("appMessageSubtitle");
+      const b = document.getElementById("appMessageBody");
+      if (t) t.textContent = String(title || "Sales Ops");
+      if (s) {
+        s.textContent = String(subtitle || "");
+        s.style.display = s.textContent ? "" : "none";
+      }
+      if (b) b.textContent = String(body || "");
+      modal.classList.remove("hidden");
+    }
+
+    function closeAppMessageModal(ev){
+      if (ev && ev.target && ev.target.id !== "appMessageModal") return;
+      const modal = document.getElementById("appMessageModal");
+      if (modal) modal.classList.add("hidden");
+    }
+
     async function copyStatusDetails(){
       const detail = document.getElementById("statusDetailsText");
       const text = detail ? String(detail.value || "") : "";
@@ -2525,8 +2546,22 @@
         setStatus(data.message || "Erro ao salvar solicitaÃ§Ã£o");
         return;
       }
-      setStatus(data.message || "SolicitaÃ§Ã£o salva");
+      const confirmSentMsg =
+        "Solicitação enviada com sucesso.\n\n" +
+        String(payload.seller_name || "-") + "\n" +
+        "Modelo: " + String(payload.model_name || "-") + "\n" +
+        "Grupo: " + String(payload.group_code || "-") + "\n" +
+        "Parcelas: " + String(payload.installments || "-") + "\n" +
+        "% Lance: " + String(document.getElementById("request_perc_lance")?.value || "-");
+      openAppMessageModal("Sales Ops", confirmSentMsg);
+      setStatus(data.message || "Solicitação enviada com sucesso");
       clearSolicitarCotaForm();
+      // Garantia de limpeza dos campos variaveis no form apos envio.
+      const resetIds = ["request_modelo","request_grupo","request_qtde_parcelas","request_perc_lance","request_observacao"];
+      for (let i = 0; i < resetIds.length; i++) {
+        const el = document.getElementById(resetIds[i]);
+        if (el) el.value = "";
+      }
       if (normalizeRoleValue(currentUserRole) !== "vendedor") {
         await searchSolicitacoes();
       }
