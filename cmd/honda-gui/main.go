@@ -2306,10 +2306,14 @@ func (a *app) handleSolicitacoesSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	sess, ok := a.currentSession(r)
 	if ok && isGerenteRole(sess.Role) {
+		subordinates, err := listGerenteSubordinates(r.Context(), store, sess)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
 		filtered := make([]db.SolicitacaoRecord, 0, len(records))
-		branch := strings.ToLower(strings.TrimSpace(sess.branch))
 		for i := range records {
-			if branch == "" || strings.ToLower(strings.TrimSpace(records[i].Filial)) == branch {
+			if matchesSupervisorSubordinate(&records[i], subordinates) {
 				filtered = append(filtered, records[i])
 			}
 		}
@@ -2458,6 +2462,138 @@ func mergeUniqueSubordinates(items ...[]db.AppUserRecord) []db.AppUserRecord {
 	return out
 }
 
+func buildRequestsScopeFromSubordinates(subordinates []db.AppUserRecord, branch string) (string, []any) {
+	if len(subordinates) == 0 {
+		if strings.TrimSpace(branch) != "" {
+			return "COALESCE(TRIM(branch),'') = ?", []any{strings.TrimSpace(branch)}
+		}
+		return "1=0", nil
+	}
+
+	sellerKeys := make([]string, 0, len(subordinates)*2)
+	cpfKeys := make([]string, 0, len(subordinates))
+	sellerSeen := make(map[string]struct{})
+	cpfSeen := make(map[string]struct{})
+	for i := range subordinates {
+		sub := &subordinates[i]
+		u := strings.ToLower(strings.TrimSpace(sub.Username))
+		if u != "" {
+			if _, ok := sellerSeen[u]; !ok {
+				sellerSeen[u] = struct{}{}
+				sellerKeys = append(sellerKeys, u)
+			}
+		}
+		d := strings.ToLower(strings.TrimSpace(sub.DisplayName))
+		if d != "" {
+			if _, ok := sellerSeen[d]; !ok {
+				sellerSeen[d] = struct{}{}
+				sellerKeys = append(sellerKeys, d)
+			}
+		}
+		cpf := onlyDigitsLocal(strings.TrimSpace(sub.CPF.String))
+		if cpf != "" {
+			if _, ok := cpfSeen[cpf]; !ok {
+				cpfSeen[cpf] = struct{}{}
+				cpfKeys = append(cpfKeys, cpf)
+			}
+		}
+	}
+	if len(sellerKeys) == 0 && len(cpfKeys) == 0 {
+		if strings.TrimSpace(branch) != "" {
+			return "COALESCE(TRIM(branch),'') = ?", []any{strings.TrimSpace(branch)}
+		}
+		return "1=0", nil
+	}
+
+	clauses := make([]string, 0, 2)
+	args := make([]any, 0, len(sellerKeys)+len(cpfKeys)+1)
+	if len(sellerKeys) > 0 {
+		ph := strings.TrimRight(strings.Repeat("?,", len(sellerKeys)), ",")
+		clauses = append(clauses, "LOWER(TRIM(COALESCE(seller_name,''))) IN ("+ph+")")
+		for _, k := range sellerKeys {
+			args = append(args, k)
+		}
+	}
+	if len(cpfKeys) > 0 {
+		ph := strings.TrimRight(strings.Repeat("?,", len(cpfKeys)), ",")
+		clauses = append(clauses, "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(cpf,''),'.',''),'-',''),'/',''),'(',''),')','') IN ("+ph+")")
+		for _, k := range cpfKeys {
+			args = append(args, k)
+		}
+	}
+
+	scope := "(" + strings.Join(clauses, " OR ") + ")"
+	if strings.TrimSpace(branch) != "" {
+		scope = "(" + scope + " AND COALESCE(TRIM(branch),'') = ?)"
+		args = append(args, strings.TrimSpace(branch))
+	}
+	return scope, args
+}
+
+func listGerenteSubordinates(ctx context.Context, store *db.Store, sess *appSession) ([]db.AppUserRecord, error) {
+	if store == nil || sess == nil || !isGerenteRole(sess.Role) {
+		return nil, nil
+	}
+	allUsers, err := store.SearchAppUsers(ctx, "", 5000)
+	if err != nil {
+		return nil, err
+	}
+	managerKeys := map[string]struct{}{}
+	if k := foldTextLocal(sess.Username); k != "" {
+		managerKeys[k] = struct{}{}
+	}
+	if k := foldTextLocal(sess.DisplayName); k != "" {
+		managerKeys[k] = struct{}{}
+	}
+	branchKey := strings.ToLower(strings.TrimSpace(sess.branch))
+
+	supervisorKeys := map[string]struct{}{}
+	for i := range allUsers {
+		u := &allUsers[i]
+		if branchKey != "" && strings.ToLower(strings.TrimSpace(u.Filial.String)) != branchKey {
+			continue
+		}
+		mgr := foldTextLocal(u.Manager.String)
+		if mgr == "" {
+			continue
+		}
+		if _, ok := managerKeys[mgr]; !ok {
+			continue
+		}
+		if isSupervisorRole(u.Role) {
+			if k := foldTextLocal(u.Username); k != "" {
+				supervisorKeys[k] = struct{}{}
+			}
+			if k := foldTextLocal(u.DisplayName); k != "" {
+				supervisorKeys[k] = struct{}{}
+			}
+		}
+	}
+
+	matched := make([]db.AppUserRecord, 0)
+	for i := range allUsers {
+		u := &allUsers[i]
+		if branchKey != "" && strings.ToLower(strings.TrimSpace(u.Filial.String)) != branchKey {
+			continue
+		}
+		mgr := foldTextLocal(u.Manager.String)
+		if mgr != "" {
+			if _, ok := managerKeys[mgr]; ok {
+				matched = append(matched, *u)
+				continue
+			}
+		}
+		sup := foldTextLocal(u.Supervisor.String)
+		if sup != "" {
+			if _, ok := supervisorKeys[sup]; ok {
+				matched = append(matched, *u)
+				continue
+			}
+		}
+	}
+	return mergeUniqueSubordinates(matched), nil
+}
+
 func buildSupervisorRequestsScope(ctx context.Context, store *db.Store, sess *appSession) (string, []any, error) {
 	if store == nil || sess == nil || !isSupervisorRole(sess.Role) {
 		return "", nil, nil
@@ -2499,73 +2635,16 @@ func buildSupervisorRequestsScope(ctx context.Context, store *db.Store, sess *ap
 			subordinates = mergeUniqueSubordinates(subordinates, fuzzy)
 		}
 	}
-	if len(subordinates) == 0 {
-		branch := strings.TrimSpace(sess.branch)
-		if branch != "" {
-			return "COALESCE(TRIM(branch),'') = ?", []any{branch}, nil
-		}
-		return "1=0", nil, nil
-	}
+	scope, args := buildRequestsScopeFromSubordinates(subordinates, strings.TrimSpace(sess.branch))
+	return scope, args, nil
+}
 
-	sellerKeys := make([]string, 0, len(subordinates)*2)
-	cpfKeys := make([]string, 0, len(subordinates))
-	sellerSeen := make(map[string]struct{})
-	cpfSeen := make(map[string]struct{})
-	for i := range subordinates {
-		sub := &subordinates[i]
-		u := strings.ToLower(strings.TrimSpace(sub.Username))
-		if u != "" {
-			if _, ok := sellerSeen[u]; !ok {
-				sellerSeen[u] = struct{}{}
-				sellerKeys = append(sellerKeys, u)
-			}
-		}
-		d := strings.ToLower(strings.TrimSpace(sub.DisplayName))
-		if d != "" {
-			if _, ok := sellerSeen[d]; !ok {
-				sellerSeen[d] = struct{}{}
-				sellerKeys = append(sellerKeys, d)
-			}
-		}
-		cpf := onlyDigitsLocal(strings.TrimSpace(sub.CPF.String))
-		if cpf != "" {
-			if _, ok := cpfSeen[cpf]; !ok {
-				cpfSeen[cpf] = struct{}{}
-				cpfKeys = append(cpfKeys, cpf)
-			}
-		}
+func buildGerenteRequestsScope(ctx context.Context, store *db.Store, sess *appSession) (string, []any, error) {
+	subordinates, err := listGerenteSubordinates(ctx, store, sess)
+	if err != nil {
+		return "", nil, err
 	}
-	if len(sellerKeys) == 0 && len(cpfKeys) == 0 {
-		branch := strings.TrimSpace(sess.branch)
-		if branch != "" {
-			return "COALESCE(TRIM(branch),'') = ?", []any{branch}, nil
-		}
-		return "1=0", nil, nil
-	}
-
-	clauses := make([]string, 0, 2)
-	args := make([]any, 0, len(sellerKeys)+len(cpfKeys)+1)
-	if len(sellerKeys) > 0 {
-		ph := strings.TrimRight(strings.Repeat("?,", len(sellerKeys)), ",")
-		clauses = append(clauses, "LOWER(TRIM(COALESCE(seller_name,''))) IN ("+ph+")")
-		for _, k := range sellerKeys {
-			args = append(args, k)
-		}
-	}
-	if len(cpfKeys) > 0 {
-		ph := strings.TrimRight(strings.Repeat("?,", len(cpfKeys)), ",")
-		clauses = append(clauses, "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(cpf,''),'.',''),'-',''),'/',''),'(',''),')','') IN ("+ph+")")
-		for _, k := range cpfKeys {
-			args = append(args, k)
-		}
-	}
-
-	scope := "(" + strings.Join(clauses, " OR ") + ")"
-	branch := strings.TrimSpace(sess.branch)
-	if branch != "" {
-		scope = "(" + scope + " AND COALESCE(TRIM(branch),'') = ?)"
-		args = append(args, branch)
-	}
+	scope, args := buildRequestsScopeFromSubordinates(subordinates, strings.TrimSpace(sess.branch))
 	return scope, args, nil
 }
 
@@ -2654,6 +2733,13 @@ func (a *app) handleMinhasSolicitacoesSearch(w http.ResponseWriter, r *http.Requ
 			return
 		}
 	}
+	if isGerente {
+		subordinates, err = listGerenteSubordinates(r.Context(), store, sess)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+	}
 
 	out := make([]solicitacaoPayload, 0, len(records))
 	for i := range records {
@@ -2665,7 +2751,7 @@ func (a *app) handleMinhasSolicitacoesSearch(w http.ResponseWriter, r *http.Requ
 			}
 		}
 		if isGerente {
-			if sessionFilial != "" && strings.ToLower(strings.TrimSpace(rec.Filial)) != sessionFilial {
+			if !matchesSupervisorSubordinate(rec, subordinates) {
 				continue
 			}
 		}
@@ -2731,7 +2817,12 @@ func (a *app) handleSolicitacaoGet(w http.ResponseWriter, r *http.Request) {
 	}
 	sess, ok := a.currentSession(r)
 	if ok && isGerenteRole(sess.Role) {
-		if strings.TrimSpace(sess.branch) != "" && !strings.EqualFold(strings.TrimSpace(sess.branch), strings.TrimSpace(rec.Filial)) {
+		subordinates, err := listGerenteSubordinates(r.Context(), store, sess)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		if !matchesSupervisorSubordinate(rec, subordinates) {
 			writeErr(w, http.StatusForbidden, fmt.Errorf("acesso negado"))
 			return
 		}
@@ -3337,8 +3428,15 @@ func (a *app) handleDashboardSummary(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if sess != nil && isGerenteRole(sess.Role) && strings.TrimSpace(sess.branch) != "" {
-		filialSel = strings.TrimSpace(sess.branch)
+	if sess != nil && isGerenteRole(sess.Role) {
+		if strings.TrimSpace(sess.branch) != "" {
+			filialSel = strings.TrimSpace(sess.branch)
+		}
+		supervisorScope, supervisorArgs, err = buildGerenteRequestsScope(r.Context(), store, sess)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
 	}
 	if sess != nil && !strings.EqualFold(strings.TrimSpace(sess.Role), "admin") && !isSuperUsuarioRole(sess.Role) && !isSupervisorRole(sess.Role) && !isGerenteRole(sess.Role) && strings.TrimSpace(sess.branch) != "" {
 		filialSel = strings.TrimSpace(sess.branch)
@@ -3651,8 +3749,15 @@ func (a *app) handleDashboardDetails(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if sess != nil && isGerenteRole(sess.Role) && strings.TrimSpace(sess.branch) != "" {
-		filialSel = strings.TrimSpace(sess.branch)
+	if sess != nil && isGerenteRole(sess.Role) {
+		if strings.TrimSpace(sess.branch) != "" {
+			filialSel = strings.TrimSpace(sess.branch)
+		}
+		supervisorScope, supervisorArgs, err = buildGerenteRequestsScope(r.Context(), store, sess)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
 	}
 	if sess != nil && !strings.EqualFold(strings.TrimSpace(sess.Role), "admin") && !isSuperUsuarioRole(sess.Role) && !isSupervisorRole(sess.Role) && !isGerenteRole(sess.Role) && strings.TrimSpace(sess.branch) != "" {
 		filialSel = strings.TrimSpace(sess.branch)
