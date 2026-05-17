@@ -2403,6 +2403,26 @@
       return n.toLocaleString("pt-BR", {minimumFractionDigits: 2, maximumFractionDigits: 2}) + "%";
     }
 
+    function lanceInputToRaw3(value){
+      let s = String(value || "").trim();
+      if (!s) return "";
+      s = s.replace(/%/g, "").trim();
+      if (s.includes(",")) {
+        s = s.replace(/\./g, "").replace(",", ".");
+      }
+      const n = Number(s);
+      if (!Number.isFinite(n)) return "";
+      return String(n);
+    }
+
+    function formatLanceInputValue3(value){
+      const raw = lanceInputToRaw3(value);
+      if (!raw) return "";
+      const n = Number(raw);
+      if (!Number.isFinite(n)) return "";
+      return n.toLocaleString("pt-BR", {minimumFractionDigits: 3, maximumFractionDigits: 3});
+    }
+
     async function loadSolicitarModeloOptions(selected, selectId, emptyLabel){
       const targetId = String(selectId || "request_modelo");
       const select = document.getElementById(targetId);
@@ -3530,7 +3550,7 @@
       document.getElementById("assembleia_tipo_contemplacao").value = data.contemplation_type || "";
       document.getElementById("assembleia_data_desclassificao").value = data.disqualification_date || "";
       document.getElementById("assembleia_cliente").value = data.client_name || "";
-      document.getElementById("assembleia_perc_lance").value = data.bid_percent || "";
+      document.getElementById("assembleia_perc_lance").value = formatLanceInputValue3(data.bid_percent || "");
       document.getElementById("assembleia_vendedor").value = data.seller_name || "";
       document.getElementById("assembleia_grupo").value = data.group_code || "";
       document.getElementById("assembleia_loteria_federal").value = data.federal_lottery || "";
@@ -3551,7 +3571,7 @@
         contemplation_type: document.getElementById("assembleia_tipo_contemplacao").value || "",
         disqualification_date: document.getElementById("assembleia_data_desclassificao").value || "",
         client_name: document.getElementById("assembleia_cliente").value || "",
-        bid_percent: document.getElementById("assembleia_perc_lance").value || "",
+        bid_percent: lanceInputToRaw3(document.getElementById("assembleia_perc_lance").value || ""),
         seller_name: document.getElementById("assembleia_vendedor").value || "",
         group_code: document.getElementById("assembleia_grupo").value || "",
         federal_lottery: document.getElementById("assembleia_loteria_federal").value || ""
@@ -3582,7 +3602,7 @@
         const id = Number(a.id || 0);
         return "<tr>" +
           "<td>" + escapeHtml(String(id)) + "</td>" +
-          "<td>" + escapeHtml(formatDateTimeBR(a.contemplation_date || "")) + "</td>" +
+          "<td>" + escapeHtml(formatDateBR(a.contemplation_date || "")) + "</td>" +
           "<td>" + escapeHtml(String(a.federal_lottery || "")) + "</td>" +
           "<td>" + escapeHtml(String(a.group_code || "")) + "</td>" +
           "<td>" + escapeHtml(a.quota_rd || "") + "</td>" +
@@ -5527,6 +5547,11 @@
       const el = document.getElementById("sol_perc_lance_atendido");
       if (!el) return;
       el.value = formatPercentInputValue(el.value || "");
+    });
+    document.getElementById("assembleia_perc_lance").addEventListener("blur", () => {
+      const el = document.getElementById("assembleia_perc_lance");
+      if (!el) return;
+      el.value = formatLanceInputValue3(el.value || "");
     });
     document.getElementById("reserved_search").addEventListener("keydown", (ev) => {
       if (ev.key === "Enter") {
