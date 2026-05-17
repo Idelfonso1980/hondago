@@ -5055,30 +5055,8 @@ func (a *app) handleAssembleiaPercLance(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var perc sql.NullFloat64
-	err = store.DB.QueryRowContext(
-		r.Context(),
-		store.Rebind(`SELECT CASE WHEN TRIM(COALESCE(CAST(bid_percent AS TEXT), '')) = '' THEN NULL
-		             ELSE CAST(REPLACE(CAST(bid_percent AS TEXT), ',', '.') AS REAL)
-		        END AS bid_percent
-		   FROM assemblies
-		  WHERE COALESCE(CAST(group_code AS TEXT), '')=?
-		     OR CAST(COALESCE(group_quota_rd, '') AS TEXT) LIKE ?
-		  ORDER BY id DESC
-		  LIMIT 1`),
-		strconv.FormatInt(group_code, 10),
-		strconv.FormatInt(group_code, 10)+"-%",
-	).Scan(&perc)
+	perc, err := store.GetAverageMinBidPercentLast6Months(r.Context(), group_code)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			writeJSON(w, http.StatusOK, map[string]any{
-				"ok":          true,
-				"group_code":  group_code,
-				"bid_percent": "",
-				"found":       false,
-			})
-			return
-		}
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}

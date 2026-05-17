@@ -1981,7 +1981,8 @@ LIMIT 1`), groupCode).Scan(
 		return nil, nil, err
 	}
 
-	rows, err := s.DB.QueryContext(ctx, s.bind(`
+	bidExpr := s.bidPercentAvgMin6mExpr("c.group_code")
+rows, err := s.DB.QueryContext(ctx, s.bind(fmt.Sprintf(`
 SELECT
   CAST(COALESCE(NULLIF(CAST(c.group_code AS TEXT), ''), '0') AS INTEGER) AS group_code,
   CAST(COALESCE(c.group_kind, '') AS TEXT) AS tipo,
@@ -1989,13 +1990,7 @@ SELECT
   CAST(COALESCE(NULLIF(CAST(c.term_months AS TEXT), ''), '0') AS INTEGER) AS prazo,
   CAST(COALESCE(NULLIF(CAST(c.term_months AS TEXT), ''), '0') AS INTEGER) AS parcelas,
   CAST(COALESCE(c.products, '') AS TEXT) AS produto,
-  CAST(COALESCE((
-      SELECT CAST(REPLACE(COALESCE(NULLIF(TRIM(CAST(a.bid_percent AS TEXT)), ''), '0'), ',', '.') AS REAL)
-      FROM assemblies a
-      WHERE CAST(COALESCE(NULLIF(CAST(a.group_code AS TEXT), ''), '0') AS INTEGER) = CAST(COALESCE(NULLIF(CAST(c.group_code AS TEXT), ''), '0') AS INTEGER)
-      ORDER BY CAST(COALESCE(NULLIF(CAST(a.id AS TEXT), ''), '0') AS INTEGER) DESC
-      LIMIT 1
-  ), 0) AS REAL) AS bid_percent
+  %s AS bid_percent
 FROM available_group_ids c
 WHERE CAST(COALESCE(NULLIF(CAST(c.group_code AS TEXT), ''), '0') AS INTEGER) <> ?
   AND CAST(COALESCE(c.group_kind, '') AS TEXT) = CAST(COALESCE(?, '') AS TEXT)
@@ -2008,7 +2003,7 @@ GROUP BY
   CAST(COALESCE(NULLIF(CAST(c.term_months AS TEXT), ''), '0') AS INTEGER),
   CAST(COALESCE(c.products, '') AS TEXT)
 ORDER BY bid_percent ASC, group_code ASC
-LIMIT ?`),
+LIMIT ?`, bidExpr)),
 		groupCode,
 		strings.TrimSpace(base.Tipo),
 		base.Vencimento,
@@ -3616,6 +3611,68 @@ LIMIT ? OFFSET ?`),
 	return out, total, rows.Err()
 }
 
+func (s *Store) bidPercentAvgMin6mExpr(groupCol string) string {
+	groupExpr := "CAST(COALESCE(NULLIF(CAST(" + groupCol + " AS TEXT), ''), '0') AS INTEGER)"
+	if s.driver == "pgx" {
+		return `CAST(COALESCE((
+SELECT AVG(month_min) FROM (
+  SELECT MIN(CAST(REPLACE(COALESCE(NULLIF(TRIM(CAST(a.bid_percent AS TEXT)), ''), '0'), ',', '.') AS DOUBLE PRECISION)) AS month_min
+  FROM assemblies a
+  WHERE CAST(COALESCE(NULLIF(CAST(a.group_code AS TEXT), ''), '0') AS INTEGER) = ` + groupExpr + `
+    AND LOWER(TRIM(COALESCE(CAST(a.contemplation_type AS TEXT), ''))) = 'lance livre'
+    AND CAST(a.contemplation_date AS DATE) >= (date_trunc('month', CURRENT_DATE) - interval '5 months')::date
+  GROUP BY date_trunc('month', CAST(a.contemplation_date AS DATE))
+) mm
+), 0) AS REAL)`
+	}
+	return `CAST(COALESCE((
+SELECT AVG(month_min) FROM (
+  SELECT MIN(CAST(REPLACE(COALESCE(NULLIF(TRIM(CAST(a.bid_percent AS TEXT)), ''), '0'), ',', '.') AS REAL)) AS month_min
+  FROM assemblies a
+  WHERE CAST(COALESCE(NULLIF(CAST(a.group_code AS TEXT), ''), '0') AS INTEGER) = ` + groupExpr + `
+    AND LOWER(TRIM(COALESCE(CAST(a.contemplation_type AS TEXT), ''))) = 'lance livre'
+    AND date(CAST(a.contemplation_date AS TEXT)) >= date('now', 'start of month', '-5 months')
+  GROUP BY strftime('%Y-%m', date(CAST(a.contemplation_date AS TEXT)))
+) mm
+), 0) AS REAL)`
+}
+
+func (s *Store) GetAverageMinBidPercentLast6Months(ctx context.Context, groupCode int64) (sql.NullFloat64, error) {
+	if groupCode <= 0 {
+		return sql.NullFloat64{}, fmt.Errorf("group_code invalido")
+	}
+	groupText := strconv.FormatInt(groupCode, 10)
+	var val sql.NullFloat64
+	if s.driver == "pgx" {
+		err := s.DB.QueryRowContext(ctx, s.bind(`
+SELECT AVG(month_min) FROM (
+  SELECT MIN(CAST(REPLACE(COALESCE(NULLIF(TRIM(CAST(a.bid_percent AS TEXT)), ''), '0'), ',', '.') AS DOUBLE PRECISION)) AS month_min
+  FROM assemblies a
+  WHERE (
+      COALESCE(CAST(a.group_code AS TEXT), '') = ?
+      OR CAST(COALESCE(a.group_quota_rd, '') AS TEXT) LIKE ?
+    )
+    AND LOWER(TRIM(COALESCE(CAST(a.contemplation_type AS TEXT), ''))) = 'lance livre'
+    AND CAST(a.contemplation_date AS DATE) >= (date_trunc('month', CURRENT_DATE) - interval '5 months')::date
+  GROUP BY date_trunc('month', CAST(a.contemplation_date AS DATE))
+) mm`), groupText, groupText+"-%").Scan(&val)
+		return val, err
+	}
+	err := s.DB.QueryRowContext(ctx, s.bind(`
+SELECT AVG(month_min) FROM (
+  SELECT MIN(CAST(REPLACE(COALESCE(NULLIF(TRIM(CAST(a.bid_percent AS TEXT)), ''), '0'), ',', '.') AS REAL)) AS month_min
+  FROM assemblies a
+  WHERE (
+      COALESCE(CAST(a.group_code AS TEXT), '') = ?
+      OR CAST(COALESCE(a.group_quota_rd, '') AS TEXT) LIKE ?
+    )
+    AND LOWER(TRIM(COALESCE(CAST(a.contemplation_type AS TEXT), ''))) = 'lance livre'
+    AND date(CAST(a.contemplation_date AS TEXT)) >= date('now', 'start of month', '-5 months')
+  GROUP BY strftime('%Y-%m', date(CAST(a.contemplation_date AS TEXT)))
+) mm`), groupText, groupText+"-%").Scan(&val)
+	return val, err
+}
+
 func (s *Store) GetAssembleiaByID(ctx context.Context, id int64) (*AssembleiaRecord, error) {
 	if id <= 0 {
 		return nil, fmt.Errorf("id invalido")
@@ -3758,17 +3815,12 @@ func (s *Store) SearchGruposAtivos(ctx context.Context, query, column, filters s
 	col := strings.ToLower(strings.TrimSpace(column))
 	filtersRaw := strings.TrimSpace(filters)
 
-	const cols = `CAST(COALESCE(NULLIF(CAST(id AS TEXT), ''), '0') AS INTEGER) AS id,
+	bidExpr := s.bidPercentAvgMin6mExpr("active_groups.group_code")
+	cols := `CAST(COALESCE(NULLIF(CAST(id AS TEXT), ''), '0') AS INTEGER) AS id,
 CAST(COALESCE(NULLIF(CAST(group_code AS TEXT), ''), '0') AS INTEGER) AS group_code,
 CAST(COALESCE(NULLIF(CAST(due_day AS TEXT), ''), '0') AS INTEGER) AS due_day,
 CAST(COALESCE(NULLIF(CAST(participants_count AS TEXT), ''), '0') AS INTEGER) AS participants_count,
-CAST(COALESCE((
-	SELECT CAST(REPLACE(COALESCE(NULLIF(TRIM(CAST(a.bid_percent AS TEXT)), ''), '0'), ',', '.') AS REAL)
-	FROM assemblies a
-	WHERE CAST(COALESCE(NULLIF(CAST(a.group_code AS TEXT), ''), '0') AS INTEGER) = CAST(COALESCE(NULLIF(CAST(active_groups.group_code AS TEXT), ''), '0') AS INTEGER)
-	ORDER BY CAST(COALESCE(NULLIF(CAST(a.id AS TEXT), ''), '0') AS INTEGER) DESC
-	LIMIT 1
-), 0) AS REAL) AS bid_percent,
+` + bidExpr + ` AS bid_percent,
 CAST(COALESCE(CAST(first_assembly_date AS TEXT), '') AS TEXT) AS first_assembly_date,
 CAST(COALESCE(plan, '') AS TEXT) AS plan,
 CAST(COALESCE(NULLIF(CAST(term_months AS TEXT), ''), '0') AS INTEGER) AS term_months,
@@ -3899,7 +3951,7 @@ OR CAST(updated_at AS TEXT) LIKE ?
 						if convErr != nil {
 							continue
 						}
-						ors = append(ors, "CAST(COALESCE((SELECT CAST(REPLACE(COALESCE(NULLIF(TRIM(CAST(a.bid_percent AS TEXT)), ''), '0'), ',', '.') AS REAL) FROM assemblies a WHERE CAST(COALESCE(NULLIF(CAST(a.group_code AS TEXT), ''), '0') AS INTEGER)=CAST(COALESCE(NULLIF(CAST(active_groups.group_code AS TEXT), ''), '0') AS INTEGER) ORDER BY CAST(COALESCE(NULLIF(CAST(a.id AS TEXT), ''), '0') AS INTEGER) DESC LIMIT 1), 0) AS REAL)=?")
+						ors = append(ors, s.bidPercentAvgMin6mExpr("active_groups.group_code")+"=?")
 						localArgs = append(localArgs, fv)
 					} else {
 						n, convErr := parseInt64Safe(v)
@@ -3978,13 +4030,7 @@ SELECT CAST(COALESCE(NULLIF(CAST(id AS TEXT), ''), '0') AS INTEGER),
        CAST(COALESCE(NULLIF(CAST(group_code AS TEXT), ''), '0') AS INTEGER),
        CAST(COALESCE(NULLIF(CAST(due_day AS TEXT), ''), '0') AS INTEGER),
        CAST(COALESCE(NULLIF(CAST(participants_count AS TEXT), ''), '0') AS INTEGER),
-       CAST(COALESCE((
-         SELECT CAST(REPLACE(COALESCE(NULLIF(TRIM(CAST(a.bid_percent AS TEXT)), ''), '0'), ',', '.') AS REAL)
-           FROM assemblies a
-          WHERE CAST(COALESCE(NULLIF(CAST(a.group_code AS TEXT), ''), '0') AS INTEGER) = CAST(COALESCE(NULLIF(CAST(active_groups.group_code AS TEXT), ''), '0') AS INTEGER)
-          ORDER BY CAST(COALESCE(NULLIF(CAST(a.id AS TEXT), ''), '0') AS INTEGER) DESC
-          LIMIT 1
-       ), 0) AS REAL),
+       `+s.bidPercentAvgMin6mExpr("active_groups.group_code")+`,
        CAST(COALESCE(CAST(first_assembly_date AS TEXT), '') AS TEXT),
        CAST(COALESCE(plan, '') AS TEXT),
        CAST(COALESCE(NULLIF(CAST(term_months AS TEXT), ''), '0') AS INTEGER),
@@ -4157,13 +4203,7 @@ SELECT CAST(COALESCE(NULLIF(CAST(id AS TEXT), ''), '0') AS INTEGER),
        CAST(COALESCE(NULLIF(CAST(group_code AS TEXT), ''), '0') AS INTEGER),
        CAST(COALESCE(NULLIF(CAST(due_day AS TEXT), ''), '0') AS INTEGER),
        CAST(COALESCE(NULLIF(CAST(participants_count AS TEXT), ''), '0') AS INTEGER),
-       CAST(COALESCE((
-         SELECT CAST(REPLACE(COALESCE(NULLIF(TRIM(CAST(a.bid_percent AS TEXT)), ''), '0'), ',', '.') AS REAL)
-           FROM assemblies a
-          WHERE CAST(COALESCE(NULLIF(CAST(a.group_code AS TEXT), ''), '0') AS INTEGER) = CAST(COALESCE(NULLIF(CAST(active_groups.group_code AS TEXT), ''), '0') AS INTEGER)
-          ORDER BY CAST(COALESCE(NULLIF(CAST(a.id AS TEXT), ''), '0') AS INTEGER) DESC
-          LIMIT 1
-       ), 0) AS REAL),
+       `+s.bidPercentAvgMin6mExpr("active_groups.group_code")+`,
        CAST(COALESCE(CAST(first_assembly_date AS TEXT), '') AS TEXT),
        CAST(COALESCE(plan, '') AS TEXT),
        CAST(COALESCE(NULLIF(CAST(term_months AS TEXT), ''), '0') AS INTEGER),
@@ -4226,13 +4266,7 @@ SELECT CAST(COALESCE(NULLIF(CAST(id AS TEXT), ''), '0') AS INTEGER),
        CAST(COALESCE(NULLIF(CAST(group_code AS TEXT), ''), '0') AS INTEGER),
        CAST(COALESCE(NULLIF(CAST(due_day AS TEXT), ''), '0') AS INTEGER),
        CAST(COALESCE(NULLIF(CAST(participants_count AS TEXT), ''), '0') AS INTEGER),
-       CAST(COALESCE((
-         SELECT CAST(REPLACE(COALESCE(NULLIF(TRIM(CAST(a.bid_percent AS TEXT)), ''), '0'), ',', '.') AS REAL)
-           FROM assemblies a
-          WHERE CAST(COALESCE(NULLIF(CAST(a.group_code AS TEXT), ''), '0') AS INTEGER) = CAST(COALESCE(NULLIF(CAST(active_groups.group_code AS TEXT), ''), '0') AS INTEGER)
-          ORDER BY CAST(COALESCE(NULLIF(CAST(a.id AS TEXT), ''), '0') AS INTEGER) DESC
-          LIMIT 1
-       ), 0) AS REAL),
+       ` + s.bidPercentAvgMin6mExpr("active_groups.group_code") + `,
        CAST(COALESCE(CAST(first_assembly_date AS TEXT), '') AS TEXT),
        CAST(COALESCE(plan, '') AS TEXT),
        CAST(COALESCE(NULLIF(CAST(term_months AS TEXT), ''), '0') AS INTEGER),
