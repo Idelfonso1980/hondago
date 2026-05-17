@@ -33,8 +33,14 @@
     let modeloLastSearch = "";
     let produtoLastSearch = "";
     let assembleiaLastSearch = "";
+    let assembleiaOffset = 0;
+    let assembleiaLimit = 100;
+    let assembleiaTotal = 0;
     let gruposAtivosLastSearch = "";
     let gruposAtivosFilters = [];
+    let gaOffset = 0;
+    let gaLimit = 100;
+    let gaTotal = 0;
     let idsgOffset = 0;
     let idsgLimit = 200;
     let idsgTotal = 0;
@@ -59,6 +65,7 @@
     let passwordPolicyLimit = 50;
     let passwordPolicyTotal = 0;
     let appConfirmResolver = null;
+    let assembleiaGrupoLocked = false;
 
     function getCookieValue(name) {
       const target = String(name || "").trim();
@@ -2113,6 +2120,7 @@
       if (kind === "edit") {
         return uiIcon("edit");
       }
+      if (kind === "add") return uiIcon("add");
       if (kind === "auth") return uiIcon("auth");
       if (kind === "reserve") return uiIcon("play");
       if (kind === "logs") return uiIcon("copy");
@@ -3499,6 +3507,12 @@
         const el = document.getElementById(field);
         if (el) el.value = "";
       }
+      const groupEl = document.getElementById("assembleia_grupo");
+      if (groupEl) {
+        groupEl.readOnly = false;
+        groupEl.classList.remove("readonly");
+      }
+      assembleiaGrupoLocked = false;
     }
 
     function fillAssembleiaForm(data){
@@ -3521,6 +3535,12 @@
       document.getElementById("assembleia_grupo").value = data.group_code || "";
       document.getElementById("assembleia_loteria_federal").value = data.federal_lottery || "";
       document.getElementById("assembleia_grupo_cota_r_d").value = data.group_quota_rd || "";
+      const groupEl = document.getElementById("assembleia_grupo");
+      if (groupEl) {
+        groupEl.readOnly = false;
+        groupEl.classList.remove("readonly");
+      }
+      assembleiaGrupoLocked = false;
     }
 
     function gatherAssembleiaForm(){
@@ -3579,19 +3599,66 @@
       }).join("");
     }
 
+    function renderAssembleiasPagination(){
+      const total = Math.max(0, Number(assembleiaTotal || 0));
+      const limit = Math.max(1, Number(assembleiaLimit || 100));
+      const page = Math.floor(assembleiaOffset / limit) + 1;
+      const pages = Math.max(1, Math.ceil(total / limit));
+      const totalBR = total.toLocaleString("pt-BR");
+      const info = document.getElementById("assembleiaPageInfo");
+      const prev = document.getElementById("assembleiaPrevBtn");
+      const next = document.getElementById("assembleiaNextBtn");
+      if (info) info.textContent = "Pág. " + String(page) + " de " + String(pages) + " | Total: " + String(totalBR);
+      if (prev) prev.disabled = assembleiaOffset <= 0;
+      if (next) next.disabled = assembleiaOffset + limit >= total;
+    }
+
     async function searchAssembleias(){
       const q = (document.getElementById("assembleia_search").value || "").trim();
       assembleiaLastSearch = q;
+      const limitEl = document.getElementById("assembleiaLimit");
+      const parsedLimit = Number(limitEl ? limitEl.value : assembleiaLimit) || 100;
+      assembleiaLimit = Math.min(500, Math.max(25, parsedLimit));
       setStatus("Buscando assembleias");
-      const res = await fetch("/api/assembleias?q=" + encodeURIComponent(q));
+      const res = await fetch(
+        "/api/assembleias?q=" + encodeURIComponent(q) +
+        "&limit=" + encodeURIComponent(String(assembleiaLimit)) +
+        "&offset=" + encodeURIComponent(String(assembleiaOffset))
+      );
       const data = await res.json();
       if (!res.ok || data.ok === false) {
         renderAssembleiasTable([]);
+        assembleiaTotal = 0;
+        renderAssembleiasPagination();
         setStatus(data.message || "Erro na busca");
         return;
       }
       renderAssembleiasTable(data.items || []);
-      setStatus("Assembleias carregadas: " + String(data.count || 0));
+      assembleiaTotal = Number(data.total || 0);
+      renderAssembleiasPagination();
+      setStatus("Assembleias carregadas: " + String(data.count || 0) + " | Total: " + String(assembleiaTotal));
+    }
+
+    function onAssembleiasLimitChange(){
+      assembleiaOffset = 0;
+      searchAssembleias();
+    }
+
+    function triggerAssembleiasSearch(){
+      assembleiaOffset = 0;
+      searchAssembleias();
+    }
+
+    function prevAssembleiasPage(){
+      if (assembleiaOffset <= 0) return;
+      assembleiaOffset = Math.max(0, assembleiaOffset - assembleiaLimit);
+      searchAssembleias();
+    }
+
+    function nextAssembleiasPage(){
+      if (assembleiaOffset + assembleiaLimit >= assembleiaTotal) return;
+      assembleiaOffset += assembleiaLimit;
+      searchAssembleias();
     }
 
     async function openAssembleiaEditModal(id){
@@ -3615,6 +3682,22 @@
       if (title) title.textContent = "Adicionar Assembleia";
       document.getElementById("assembleiaEditModal").classList.remove("hidden");
       setStatus("Nova Assembleia");
+    }
+
+    function openAssembleiaCreateModalFromGroup(groupCode){
+      clearAssembleiaForm();
+      const normalized = String(groupCode || "").trim();
+      const groupEl = document.getElementById("assembleia_grupo");
+      if (groupEl) {
+        groupEl.value = normalized;
+        groupEl.readOnly = true;
+        groupEl.classList.add("readonly");
+      }
+      assembleiaGrupoLocked = true;
+      const title = document.getElementById("assembleiaModalTitle");
+      if (title) title.textContent = "Adicionar Assembleia";
+      document.getElementById("assembleiaEditModal").classList.remove("hidden");
+      setStatus("Nova Assembleia para o grupo " + normalized);
     }
 
     function closeAssembleiaEditModal(ev){
@@ -4007,10 +4090,24 @@
           "<td>" + escapeHtml(normalizeActiveStatus(String(g.status || ""))) + "</td>" +
           "<td><div class=\"auth-actions\">" +
             "<button type=\"button\" class=\"auth-action-btn\" title=\"Editar\" aria-label=\"Editar\" onclick=\"openGrupoAtivoEditModal(" + String(id) + ")\">" + authActionIcon("edit") + "</button>" +
+            "<button type=\"button\" class=\"auth-action-btn auth-action-success\" title=\"Adicionar Assembleia\" aria-label=\"Adicionar Assembleia\" onclick=\"openAssembleiaCreateModalFromGroup(" + String(g.group_code || 0) + ")\">" + authActionIcon("add") + "</button>" +
             "<button type=\"button\" class=\"auth-action-btn auth-action-danger\" title=\"Excluir\" aria-label=\"Excluir\" onclick=\"deleteGrupoAtivo(" + String(id) + ")\">" + authActionIcon("delete") + "</button>" +
           "</div></td>" +
         "</tr>";
       }).join("");
+    }
+
+    function renderGruposAtivosPagination(){
+      const total = Math.max(0, Number(gaTotal || 0));
+      const limit = Math.max(1, Number(gaLimit || 100));
+      const page = Math.floor(gaOffset / limit) + 1;
+      const pages = Math.max(1, Math.ceil(total / limit));
+      const info = document.getElementById("gaPageInfo");
+      const prev = document.getElementById("gaPrevBtn");
+      const next = document.getElementById("gaNextBtn");
+      if (info) info.textContent = "Pág. " + String(page) + " de " + String(pages) + " | Total: " + total.toLocaleString("pt-BR");
+      if (prev) prev.disabled = gaOffset <= 0;
+      if (next) next.disabled = gaOffset + limit >= total;
     }
 
     function gaFilterLabel(field){
@@ -4062,6 +4159,7 @@
       gruposAtivosFilters.push({field, value});
       valueEl.value = "";
       renderGaFilterChips();
+      gaOffset = 0;
       setStatus("Filtro adicionado");
     }
 
@@ -4070,23 +4168,58 @@
       if (!Number.isFinite(n) || n < 0 || n >= gruposAtivosFilters.length) return;
       gruposAtivosFilters.splice(n, 1);
       renderGaFilterChips();
+      gaOffset = 0;
       setStatus("Filtro removido");
+    }
+
+    function onGruposAtivosLimitChange(){
+      gaOffset = 0;
+      searchGruposAtivos();
+    }
+
+    function triggerGruposAtivosSearch(){
+      gaOffset = 0;
+      searchGruposAtivos();
+    }
+
+    function prevGruposAtivosPage(){
+      if (gaOffset <= 0) return;
+      gaOffset = Math.max(0, gaOffset - gaLimit);
+      searchGruposAtivos();
+    }
+
+    function nextGruposAtivosPage(){
+      if (gaOffset + gaLimit >= gaTotal) return;
+      gaOffset += gaLimit;
+      searchGruposAtivos();
     }
 
     async function searchGruposAtivos(){
       const q = (document.getElementById("ga_search").value || "").trim();
       const filters = gruposAtivosFilters.map((f) => String(f.field || "").trim() + ":" + String(f.value || "").trim()).filter(Boolean).join(";");
       gruposAtivosLastSearch = q;
+      const limitEl = document.getElementById("gaLimit");
+      const parsedLimit = Number(limitEl ? limitEl.value : gaLimit) || 100;
+      gaLimit = Math.min(500, Math.max(25, parsedLimit));
       setStatus("Buscando grupos ativos");
-      const res = await fetch("/api/active_groups?q=" + encodeURIComponent(q) + "&filters=" + encodeURIComponent(filters));
+      const res = await fetch(
+        "/api/active_groups?q=" + encodeURIComponent(q) +
+        "&filters=" + encodeURIComponent(filters) +
+        "&offset=" + encodeURIComponent(String(gaOffset)) +
+        "&limit=" + encodeURIComponent(String(gaLimit))
+      );
       const data = await res.json();
       if (!res.ok || data.ok === false) {
         renderGruposAtivosTable([]);
+        gaTotal = 0;
+        renderGruposAtivosPagination();
         setStatus(data.message || "Erro na busca");
         return;
       }
       renderGruposAtivosTable(data.items || []);
-      setStatus("Grupos ativos carregados: " + String(data.count || 0));
+      gaTotal = Number(data.total || 0);
+      renderGruposAtivosPagination();
+      setStatus("Grupos ativos carregados: " + String(data.count || 0) + " | Total: " + gaTotal.toLocaleString("pt-BR"));
     }
 
     async function openGrupoAtivoEditModal(id){
@@ -5333,7 +5466,7 @@
     document.getElementById("ga_search").addEventListener("keydown", (ev) => {
       if (ev.key === "Enter") {
         ev.preventDefault();
-        searchGruposAtivos();
+        triggerGruposAtivosSearch();
       }
     });
     document.getElementById("ga_filter_value").addEventListener("keydown", (ev) => {
@@ -5345,7 +5478,7 @@
     document.getElementById("assembleia_search").addEventListener("keydown", (ev) => {
       if (ev.key === "Enter") {
         ev.preventDefault();
-        searchAssembleias();
+        triggerAssembleiasSearch();
       }
     });
     document.getElementById("request_grupo").addEventListener("change", () => {

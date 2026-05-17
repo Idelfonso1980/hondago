@@ -3507,9 +3507,15 @@ func (s *Store) DeleteProduto(ctx context.Context, id int64) error {
 	return err
 }
 
-func (s *Store) SearchAssembleias(ctx context.Context, query string, limit int) ([]AssembleiaRecord, error) {
+func (s *Store) SearchAssembleias(ctx context.Context, query string, limit, offset int) ([]AssembleiaRecord, int64, error) {
 	if limit <= 0 {
-		limit = 1000
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	if offset < 0 {
+		offset = 0
 	}
 	q := strings.TrimSpace(query)
 	const cols = `CAST(COALESCE(NULLIF(CAST(id AS TEXT), ''), '0') AS INTEGER) AS id,
@@ -3526,14 +3532,32 @@ CAST(COALESCE(group_quota_rd, '') AS TEXT) AS group_quota_rd`
 
 	var rows *sql.Rows
 	var err error
+	var total int64
+	var countQuery string
+	var countArgs []any
 	if q == "" {
-		rows, err = s.DB.QueryContext(ctx, s.bind("SELECT "+cols+" FROM assemblies ORDER BY id DESC LIMIT ?"), limit)
+		countQuery = "SELECT COUNT(1) FROM assemblies"
+		countArgs = []any{}
+		rows, err = s.DB.QueryContext(ctx, s.bind("SELECT "+cols+" FROM assemblies ORDER BY id DESC LIMIT ? OFFSET ?"), limit, offset)
 	} else {
 		textLike := "LIKE"
 		if s.driver == "pgx" {
 			textLike = "ILIKE"
 		}
 		like := "%" + q + "%"
+		countQuery = `SELECT COUNT(1) FROM assemblies
+WHERE CAST(id AS TEXT)=?
+   OR CAST(COALESCE(quota_rd, '') AS TEXT) ` + textLike + ` ?
+   OR CAST(COALESCE(CAST(contemplation_date AS TEXT), '') AS TEXT) ` + textLike + ` ?
+   OR CAST(COALESCE(contemplation_type, '') AS TEXT) ` + textLike + ` ?
+   OR CAST(COALESCE(CAST(disqualification_date AS TEXT), '') AS TEXT) ` + textLike + ` ?
+   OR CAST(COALESCE(client_name, '') AS TEXT) ` + textLike + ` ?
+   OR CAST(COALESCE(CAST(bid_percent AS TEXT), '') AS TEXT) ` + textLike + ` ?
+   OR CAST(COALESCE(seller_name, '') AS TEXT) ` + textLike + ` ?
+   OR CAST(COALESCE(CAST(group_code AS TEXT), '') AS TEXT) LIKE ?
+   OR CAST(COALESCE(CAST(federal_lottery AS TEXT), '') AS TEXT) LIKE ?
+   OR CAST(COALESCE(group_quota_rd, '') AS TEXT) ` + textLike + ` ?`
+		countArgs = []any{q, like, like, like, like, like, like, like, like, like, like}
 		rows, err = s.DB.QueryContext(
 			ctx,
 			s.bind(`SELECT `+cols+` FROM assemblies
@@ -3549,12 +3573,15 @@ WHERE CAST(id AS TEXT)=?
    OR CAST(COALESCE(CAST(federal_lottery AS TEXT), '') AS TEXT) LIKE ?
    OR CAST(COALESCE(group_quota_rd, '') AS TEXT) `+textLike+` ?
 ORDER BY id DESC
-LIMIT ?`),
-			q, like, like, like, like, like, like, like, like, like, like, limit,
+LIMIT ? OFFSET ?`),
+			q, like, like, like, like, like, like, like, like, like, like, limit, offset,
 		)
 	}
 	if err != nil {
-		return nil, err
+		return nil, 0, err
+	}
+	if err := s.DB.QueryRowContext(ctx, s.bind(countQuery), countArgs...).Scan(&total); err != nil {
+		return nil, 0, err
 	}
 	defer rows.Close()
 
@@ -3575,7 +3602,7 @@ LIMIT ?`),
 			&r.LoteriaFederal,
 			&grupoCota,
 		); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		r.CotaRD = quota_rd
 		r.TipoContemplacao = tipoCont
@@ -3586,7 +3613,7 @@ LIMIT ?`),
 		r.DataDesclassificao = sql.NullString{String: dataDesc, Valid: strings.TrimSpace(dataDesc) != ""}
 		out = append(out, r)
 	}
-	return out, rows.Err()
+	return out, total, rows.Err()
 }
 
 func (s *Store) GetAssembleiaByID(ctx context.Context, id int64) (*AssembleiaRecord, error) {
@@ -3717,9 +3744,15 @@ func (s *Store) DeleteAssembleia(ctx context.Context, id int64) error {
 	return err
 }
 
-func (s *Store) SearchGruposAtivos(ctx context.Context, query, column, filters string, limit int) ([]GrupoAtivoRecord, error) {
+func (s *Store) SearchGruposAtivos(ctx context.Context, query, column, filters string, limit, offset int) ([]GrupoAtivoRecord, int64, error) {
 	if limit <= 0 {
-		limit = 1000
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	if offset < 0 {
+		offset = 0
 	}
 	q := strings.TrimSpace(query)
 	col := strings.ToLower(strings.TrimSpace(column))
@@ -3795,13 +3828,13 @@ OR CAST(updated_at AS TEXT) LIKE ?
 			if rawCol, ok := numericCols[col]; ok {
 				n, convErr := parseInt64Safe(q)
 				if convErr != nil {
-					return []GrupoAtivoRecord{}, nil
+					return []GrupoAtivoRecord{}, 0, nil
 				}
 				appendCondition("CAST(COALESCE(NULLIF(CAST("+rawCol+" AS TEXT), ''), '0') AS INTEGER)=?", n)
 			} else if rawCol, ok := textCols[col]; ok {
 				appendCondition("CAST(COALESCE("+rawCol+", '') AS TEXT) "+textLike+" ?", "%"+q+"%")
 			} else {
-				return nil, fmt.Errorf("coluna de busca invalida")
+				return nil, 0, fmt.Errorf("coluna de busca invalida")
 			}
 		}
 	}
@@ -3892,12 +3925,18 @@ OR CAST(updated_at AS TEXT) LIKE ?
 		whereSQL = "WHERE " + strings.Join(whereParts, " AND ")
 	}
 
-	querySQL := "SELECT " + cols + " FROM active_groups " + whereSQL + " ORDER BY id DESC LIMIT ?"
+	var total int64
+	countSQL := "SELECT COUNT(1) FROM active_groups " + whereSQL
+	if err := s.DB.QueryRowContext(ctx, s.bind(countSQL), whereArgs...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	querySQL := "SELECT " + cols + " FROM active_groups " + whereSQL + " ORDER BY id DESC LIMIT ? OFFSET ?"
 	args := append([]any{}, whereArgs...)
-	args = append(args, limit)
+	args = append(args, limit, offset)
 	rows, err := s.DB.QueryContext(ctx, s.bind(querySQL), args...)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 
@@ -3920,14 +3959,14 @@ OR CAST(updated_at AS TEXT) LIKE ?
 			&createdAt,
 			&updatedAt,
 		); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		r.DataAssembleiaInaugural = sql.NullString{String: dataAssembleia, Valid: strings.TrimSpace(dataAssembleia) != ""}
 		r.CreatedAt = sql.NullString{String: createdAt, Valid: strings.TrimSpace(createdAt) != ""}
 		r.UpdatedAt = sql.NullString{String: updatedAt, Valid: strings.TrimSpace(updatedAt) != ""}
 		out = append(out, r)
 	}
-	return out, rows.Err()
+	return out, total, rows.Err()
 }
 
 func (s *Store) GetGrupoAtivoByID(ctx context.Context, id int64) (*GrupoAtivoRecord, error) {

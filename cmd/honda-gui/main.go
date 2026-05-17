@@ -4999,13 +4999,15 @@ func (a *app) handleProdutoDelete(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) handleAssembleiasSearch(w http.ResponseWriter, r *http.Request) {
 	search := strings.TrimSpace(r.URL.Query().Get("q"))
+	offset, _ := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("offset")))
+	limit, _ := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("limit")))
 	_, store, err := a.openStoreFromCurrentConfig()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
 
-	records, err := store.SearchAssembleias(r.Context(), search, 2000)
+	records, total, err := store.SearchAssembleias(r.Context(), search, limit, offset)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -5014,7 +5016,7 @@ func (a *app) handleAssembleiasSearch(w http.ResponseWriter, r *http.Request) {
 	for i := range records {
 		out = append(out, assembleiaToPayload(&records[i]))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "items": out, "count": len(out)})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "items": out, "count": len(out), "total": total})
 }
 
 func (a *app) handleAssembleiaGet(w http.ResponseWriter, r *http.Request) {
@@ -5183,6 +5185,17 @@ func (a *app) handleGruposAtivosSearch(w http.ResponseWriter, r *http.Request) {
 	search := strings.TrimSpace(r.URL.Query().Get("q"))
 	column := strings.TrimSpace(r.URL.Query().Get("column"))
 	filters := strings.TrimSpace(r.URL.Query().Get("filters"))
+	offset, _ := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("offset")))
+	limit, _ := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("limit")))
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	if offset < 0 {
+		offset = 0
+	}
 
 	// Filtro híbrido: "parc" é calculado dinamicamente em memória.
 	// Removemos "parc" da query SQL e aplicamos após calcular ParcelasCalculadas.
@@ -5193,7 +5206,14 @@ func (a *app) handleGruposAtivosSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	records, err := store.SearchGruposAtivos(r.Context(), search, column, sqlFilters, 2000)
+	var records []db.GrupoAtivoRecord
+	var total int64
+	if len(parcFilters) == 0 {
+		records, total, err = store.SearchGruposAtivos(r.Context(), search, column, sqlFilters, limit, offset)
+	} else {
+		// "parc" é calculado dinamicamente; traz base SQL ampla e pagina após calcular.
+		records, _, err = store.SearchGruposAtivos(r.Context(), search, column, sqlFilters, 20000, 0)
+	}
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -5210,7 +5230,19 @@ func (a *app) handleGruposAtivosSearch(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, item)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "items": out, "count": len(out)})
+	if len(parcFilters) > 0 {
+		total = int64(len(out))
+		start := offset
+		if start > len(out) {
+			start = len(out)
+		}
+		end := start + limit
+		if end > len(out) {
+			end = len(out)
+		}
+		out = out[start:end]
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "items": out, "count": len(out), "total": total})
 }
 
 func splitGAFiltersForSQL(filters string) (string, []int64) {
@@ -5363,7 +5395,7 @@ func (a *app) handleGrupoAtivoSimilares(w http.ResponseWriter, r *http.Request) 
 		if candidateLimit > 10000 {
 			candidateLimit = 10000
 		}
-		records, qErr := store.SearchGruposAtivos(r.Context(), "", "", sqlFilters, candidateLimit)
+		records, _, qErr := store.SearchGruposAtivos(r.Context(), "", "", sqlFilters, candidateLimit, 0)
 		if qErr != nil {
 			writeErr(w, http.StatusInternalServerError, qErr)
 			return
@@ -5451,7 +5483,7 @@ func (a *app) handleGrupoAtivoSimilares(w http.ResponseWriter, r *http.Request) 
 	if candidateLimit > 10000 {
 		candidateLimit = 10000
 	}
-	records, qErr := store.SearchGruposAtivos(r.Context(), "", "", sqlFilters, candidateLimit)
+	records, _, qErr := store.SearchGruposAtivos(r.Context(), "", "", sqlFilters, candidateLimit, 0)
 	if qErr != nil {
 		writeErr(w, http.StatusInternalServerError, qErr)
 		return

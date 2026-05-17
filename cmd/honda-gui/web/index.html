@@ -877,7 +877,7 @@
                   <button class="btn ga-add-filter-btn" type="button" onclick="addGaFilterChip()">+ Filtro</button>
                 </div>
                 <div style="display:flex; align-items:flex-end;">
-                  <button class="btn search-icon-btn" data-iconified="1" title="Buscar" aria-label="Buscar" onclick="searchGruposAtivos()">
+                  <button class="btn search-icon-btn" data-iconified="1" title="Buscar" aria-label="Buscar" onclick="triggerGruposAtivosSearch()">
                     <span class="btn-ico" aria-hidden="true">
                       <svg viewBox="0 0 24 24" focusable="false">
                         <circle cx="11" cy="11" r="7"></circle>
@@ -892,6 +892,17 @@
               <div class="auth-toolbar">
                 <button class="btn" onclick="openGrupoAtivoCreateModal()">Adicionar</button>
                 <button class="btn" onclick="deleteSelectedGruposAtivos()">Deletar Selecionados</button>
+                <div class="table-pager">
+                  <label for="gaLimit">Página</label>
+                  <select id="gaLimit" onchange="onGruposAtivosLimitChange()">
+                    <option value="50">50</option>
+                    <option value="100" selected>100</option>
+                    <option value="200">200</option>
+                  </select>
+                  <button id="gaPrevBtn" class="btn" type="button" onclick="prevGruposAtivosPage()">Anterior</button>
+                  <button id="gaNextBtn" class="btn" type="button" onclick="nextGruposAtivosPage()">Próxima</button>
+                  <span id="gaPageInfo">Pág. 1 de 1 | Total: 0</span>
+                </div>
               </div>
 
               <div class="auth-table-wrap">
@@ -1102,7 +1113,7 @@
                   <input id="assembleia_search" placeholder="Ex: 47525, 419-1-4, vendedor, cliente" />
                 </div>
                 <div style="display:flex; align-items:flex-end;">
-                  <button class="btn search-icon-btn" data-iconified="1" title="Buscar" aria-label="Buscar" onclick="searchAssembleias()">
+                  <button class="btn search-icon-btn" data-iconified="1" title="Buscar" aria-label="Buscar" onclick="triggerAssembleiasSearch()">
                     <span class="btn-ico" aria-hidden="true">
                       <svg viewBox="0 0 24 24" focusable="false">
                         <circle cx="11" cy="11" r="7"></circle>
@@ -1114,6 +1125,17 @@
               </div>
               <div class="auth-toolbar">
                 <button class="btn" onclick="openAssembleiaCreateModal()">Adicionar</button>
+                <div class="table-pager">
+                  <label for="assembleiaLimit">Página</label>
+                  <select id="assembleiaLimit" onchange="onAssembleiasLimitChange()">
+                    <option value="50">50</option>
+                    <option value="100" selected>100</option>
+                    <option value="200">200</option>
+                  </select>
+                  <button id="assembleiaPrevBtn" class="btn" type="button" onclick="prevAssembleiasPage()">Anterior</button>
+                  <button id="assembleiaNextBtn" class="btn" type="button" onclick="nextAssembleiasPage()">Próxima</button>
+                  <span id="assembleiaPageInfo">Pág. 1 de 1 | Total: 0</span>
+                </div>
               </div>
               <div class="auth-table-wrap">
                 <table class="auth-table">
