@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -4019,6 +4020,36 @@ OR CAST(updated_at AS TEXT) LIKE ?
 		out = append(out, r)
 	}
 	return out, total, rows.Err()
+}
+
+func (s *Store) ExistsAssembleiaByNaturalKey(ctx context.Context, groupCode int64, quotaRD, contemplationDate string, federalLottery int64) (bool, error) {
+	quota := strings.TrimSpace(quotaRD)
+	date := strings.TrimSpace(contemplationDate)
+	if groupCode <= 0 || quota == "" || date == "" || federalLottery <= 0 {
+		return false, nil
+	}
+	var id int64
+	err := s.DB.QueryRowContext(
+		ctx,
+		s.bind(`SELECT id
+FROM assemblies
+WHERE group_code = ?
+  AND quota_rd = ?
+  AND contemplation_date = ?
+  AND federal_lottery = ?
+LIMIT 1`),
+		groupCode,
+		quota,
+		date,
+		federalLottery,
+	).Scan(&id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	return id > 0, nil
 }
 
 func (s *Store) GetGrupoAtivoByID(ctx context.Context, id int64) (*GrupoAtivoRecord, error) {
