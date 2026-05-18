@@ -5455,7 +5455,13 @@ func (a *app) handleGrupoAtivoSimilares(w http.ResponseWriter, r *http.Request) 
 	now := time.Now().In(utcMinus3Loc)
 	baseParcelas := calculateParcelasFromGrupoAtivo(baseAG, holidays, now)
 
-	filters := fmt.Sprintf("tipo:%s;venc:%d;parc:%d", strings.TrimSpace(baseAG.TipoGrupo), baseAG.Vencimento, baseParcelas)
+	filters := fmt.Sprintf(
+		"tipo:%s;venc:%d;plano:%s;parc:%d",
+		strings.TrimSpace(baseAG.TipoGrupo),
+		baseAG.Vencimento,
+		strings.TrimSpace(baseAG.Plano),
+		baseParcelas,
+	)
 	sqlFilters, parcFilters := splitGAFiltersForSQL(filters)
 	// Importante: buscar uma janela maior antes de filtrar parcelas em memória,
 	// para não perder grupos antigos por causa de LIMIT precoce no SQL.
