@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
+	"encoding/csv"
 	"database/sql"
 	"embed"
 	"encoding/hex"
@@ -29,6 +30,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"honda/go-engine/internal/applog"
 	"honda/go-engine/internal/config"
@@ -125,6 +127,7 @@ var methodPolicy = map[string][]string{
 	"/api/db/backup":                        {http.MethodGet},
 	"/api/db/restore":                       {http.MethodPost},
 	"/api/db/restore-capabilities":          {http.MethodGet},
+	"/api/db/assembleias/import-text":       {http.MethodGet, http.MethodPost},
 	"/api/security/password-policy":         {http.MethodGet, http.MethodPost},
 	"/api/security/password-policy/force-all": {http.MethodPost},
 	"/api/security/password-policy/users":   {http.MethodGet},
@@ -156,6 +159,7 @@ var criticalPermissionPolicy = map[string]string{
 	"/api/db/backup":                    "db:backup",
 	"/api/db/restore":                   "db:restore",
 	"/api/db/restore-capabilities":      "config:database",
+	"/api/db/assembleias/import-text":   "config:database",
 	"/api/security/password-policy":     "config:password_policy",
 	"/api/security/password-policy/force-all": "config:password_policy",
 	"/api/security/password-policy/users": "config:password_policy",
@@ -802,6 +806,7 @@ func main() {
 	mux.HandleFunc("/api/db/backup", app.handleDBBackup)
 	mux.HandleFunc("/api/db/restore", app.handleDBRestore)
 	mux.HandleFunc("/api/db/restore-capabilities", app.handleDBRestoreCapabilities)
+	mux.HandleFunc("/api/db/assembleias/import-text", app.handleDBAssembleiasImportText)
 	mux.HandleFunc("/api/security/password-policy", app.handlePasswordPolicy)
 	mux.HandleFunc("/api/security/password-policy/force-all", app.handlePasswordPolicyForceAll)
 	mux.HandleFunc("/api/security/password-policy/users", app.handlePasswordPolicyUsers)
@@ -5900,6 +5905,648 @@ func (a *app) handleDBRestoreCapabilities(w http.ResponseWriter, r *http.Request
 		"backup_reason":     caps.BackupReason,
 		"restore_reason":    caps.RestoreReason,
 		"reason":            caps.RestoreReason,
+	})
+}
+
+func normalizeCSVHeaderName(s string) string {
+	s = strings.TrimSpace(strings.ToLower(s))
+	if s == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch r {
+		case 'á', 'à', 'â', 'ã', 'ä':
+			r = 'a'
+		case 'é', 'è', 'ê', 'ë':
+			r = 'e'
+		case 'í', 'ì', 'î', 'ï':
+			r = 'i'
+		case 'ó', 'ò', 'ô', 'õ', 'ö':
+			r = 'o'
+		case 'ú', 'ù', 'û', 'ü':
+			r = 'u'
+		case 'ç':
+			r = 'c'
+		}
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+			continue
+		}
+		b.WriteByte(' ')
+	}
+	return strings.Join(strings.Fields(b.String()), " ")
+}
+
+func csvValueByAliases(row []string, headerIndex map[string]int, aliases ...string) string {
+	for _, alias := range aliases {
+		idx, ok := headerIndex[normalizeCSVHeaderName(alias)]
+		if !ok {
+			continue
+		}
+		if idx < 0 || idx >= len(row) {
+			continue
+		}
+		return strings.TrimSpace(row[idx])
+	}
+	return ""
+}
+
+func parseCSVFloat(raw string) (sql.NullFloat64, error) {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return sql.NullFloat64{}, nil
+	}
+	s = strings.ReplaceAll(s, "%", "")
+	if strings.Contains(s, ",") {
+		s = strings.ReplaceAll(s, ".", "")
+		s = strings.ReplaceAll(s, ",", ".")
+	}
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return sql.NullFloat64{}, nil
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return sql.NullFloat64{}, err
+	}
+	return sql.NullFloat64{Float64: f, Valid: true}, nil
+}
+
+func parseCSVInt(raw string) (sql.NullInt64, error) {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return sql.NullInt64{}, nil
+	}
+	s = onlyDigitsLocal(s)
+	if s == "" {
+		return sql.NullInt64{}, nil
+	}
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return sql.NullInt64{}, err
+	}
+	return sql.NullInt64{Int64: n, Valid: true}, nil
+}
+
+func normalizeCSVDate(raw string) string {
+	return normalizeDateTimeToSQL(raw)
+}
+
+func (a *app) handleDBAssembleiasImportCSV(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, "config:database") {
+		return
+	}
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("falha ao ler multipart: %w", err))
+		return
+	}
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("arquivo CSV nao enviado"))
+		return
+	}
+	defer file.Close()
+
+	defaultGroup := strings.TrimSpace(r.FormValue("default_group_code"))
+	defaultDate := strings.TrimSpace(r.FormValue("default_contemplation_date"))
+	defaultLottery := strings.TrimSpace(r.FormValue("default_federal_lottery"))
+
+	_, store, err := a.openStoreFromCurrentConfig()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	reader := csv.NewReader(file)
+	reader.Comma = ';'
+	reader.LazyQuotes = true
+	header, err := reader.Read()
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("nao foi possivel ler cabecalho do CSV: %w", err))
+		return
+	}
+	if len(header) < 2 {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("CSV invalido: cabecalho insuficiente"))
+		return
+	}
+	headerIndex := make(map[string]int, len(header))
+	for i, h := range header {
+		headerIndex[normalizeCSVHeaderName(h)] = i
+	}
+
+	inserted := 0
+	skipped := 0
+	errorsList := make([]string, 0, 20)
+	lineNo := 1
+
+	for {
+		row, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		lineNo++
+		if err != nil {
+			if len(errorsList) < 20 {
+				errorsList = append(errorsList, fmt.Sprintf("linha %d: %v", lineNo, err))
+			}
+			skipped++
+			continue
+		}
+		if len(row) == 0 {
+			skipped++
+			continue
+		}
+
+		cotaRD := csvValueByAliases(row, headerIndex, "cota-r-d", "cota r d", "cota_rd", "quota_rd")
+		contemplationDate := csvValueByAliases(row, headerIndex, "data contemplacao", "contemplacao", "contemplation_date")
+		contemplationType := csvValueByAliases(row, headerIndex, "tipo contemplacao", "contemplation_type")
+		disqDate := csvValueByAliases(row, headerIndex, "data desclassificacao", "desclassificacao", "disqualification_date")
+		clientName := csvValueByAliases(row, headerIndex, "nome do consorciado", "cliente", "client_name")
+		bidRaw := csvValueByAliases(row, headerIndex, "% lance", "perc lance", "perc. lance", "bid_percent")
+		sellerName := csvValueByAliases(row, headerIndex, "nome do vendedor", "vendedor", "seller_name")
+		groupRaw := csvValueByAliases(row, headerIndex, "grupo", "group_code")
+		lotteryRaw := csvValueByAliases(row, headerIndex, "num loteria", "num. loteria", "loteria federal", "federal_lottery")
+
+		if groupRaw == "" {
+			groupRaw = defaultGroup
+		}
+		if contemplationDate == "" {
+			contemplationDate = defaultDate
+		}
+		if lotteryRaw == "" {
+			lotteryRaw = defaultLottery
+		}
+
+		if strings.TrimSpace(cotaRD) == "" && strings.TrimSpace(clientName) == "" && strings.TrimSpace(bidRaw) == "" {
+			skipped++
+			continue
+		}
+
+		grp, gerr := parseCSVInt(groupRaw)
+		if gerr != nil {
+			if len(errorsList) < 20 {
+				errorsList = append(errorsList, fmt.Sprintf("linha %d: grupo invalido (%s)", lineNo, groupRaw))
+			}
+			skipped++
+			continue
+		}
+		lot, lerr := parseCSVInt(lotteryRaw)
+		if lerr != nil {
+			if len(errorsList) < 20 {
+				errorsList = append(errorsList, fmt.Sprintf("linha %d: loteria invalida (%s)", lineNo, lotteryRaw))
+			}
+			skipped++
+			continue
+		}
+		bid, berr := parseCSVFloat(bidRaw)
+		if berr != nil {
+			if len(errorsList) < 20 {
+				errorsList = append(errorsList, fmt.Sprintf("linha %d: percentual invalido (%s)", lineNo, bidRaw))
+			}
+			skipped++
+			continue
+		}
+
+		dateNorm := normalizeCSVDate(contemplationDate)
+		disqNorm := normalizeCSVDate(disqDate)
+
+		if err := func() error {
+			_, err := store.SaveAssembleia(r.Context(), db.AssembleiaRecord{
+				CotaRD:             strings.TrimSpace(cotaRD),
+				DataContemplacao:   sql.NullString{String: strings.TrimSpace(dateNorm), Valid: strings.TrimSpace(dateNorm) != ""},
+				TipoContemplacao:   strings.TrimSpace(contemplationType),
+				DataDesclassificao: sql.NullString{String: strings.TrimSpace(disqNorm), Valid: strings.TrimSpace(disqNorm) != ""},
+				ClientName:         strings.TrimSpace(clientName),
+				PercLance:          bid,
+				Vendedor:           strings.TrimSpace(sellerName),
+				Grupo:              grp,
+				LoteriaFederal:     lot,
+			})
+			return err
+		}(); err != nil {
+			if len(errorsList) < 20 {
+				errorsList = append(errorsList, fmt.Sprintf("linha %d: erro ao salvar (%v)", lineNo, err))
+			}
+			skipped++
+			continue
+		}
+		inserted++
+	}
+
+	msg := fmt.Sprintf("Importação concluída. Inseridos: %d | Ignorados: %d", inserted, skipped)
+	if len(errorsList) > 0 {
+		msg += fmt.Sprintf(" | Erros: %d (mostrando até 20)", len(errorsList))
+	}
+	a.logAudit(r, "DB_IMPORT_ASSEMBLEIAS_CSV", "database", "", "", fmt.Sprintf("inserted=%d skipped=%d", inserted, skipped))
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":       true,
+		"message":  msg,
+		"inserted": inserted,
+		"skipped":  skipped,
+		"errors":   errorsList,
+	})
+}
+
+type assembleiaImportTextRequest struct {
+	Action                   string `json:"action"`
+	RawText                  string `json:"raw_text"`
+	DefaultGroupCode         string `json:"default_group_code"`
+	DefaultContemplationDate string `json:"default_contemplation_date"`
+	DefaultFederalLottery    string `json:"default_federal_lottery"`
+}
+
+type assembleiaImportPreviewItem struct {
+	CotaRD             string `json:"cota_rd"`
+	DataContemplacao   string `json:"contemplation_date"`
+	TipoContemplacao   string `json:"contemplation_type"`
+	DataDesclassificao string `json:"disqualification_date"`
+	ClientName         string `json:"client_name"`
+	PercLance          string `json:"bid_percent"`
+	Vendedor           string `json:"seller_name"`
+	Grupo              string `json:"group_code"`
+	LoteriaFederal     string `json:"federal_lottery"`
+}
+
+func parseAssembleiasRawText(raw string, defaultGroup, defaultDate, defaultLottery string) ([]assembleiaImportPreviewItem, []string) {
+	lines := strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n")
+	groupRaw := strings.TrimSpace(defaultGroup)
+	dateRaw := strings.TrimSpace(defaultDate)
+	lotteryRaw := strings.TrimSpace(defaultLottery)
+	errorsList := make([]string, 0, 20)
+
+	normalizeLine := func(s string) string {
+		r := strings.NewReplacer(
+			"\t", " ",
+			"→", " ",
+			"\u00a0", " ",
+		)
+		s = r.Replace(s)
+		s = strings.ReplaceAll(s, "  ", " ")
+		s = strings.TrimSpace(s)
+		return s
+	}
+	reDate := regexp.MustCompile(`(?i)data:\s*([0-9]{1,2}/[0-9]{1,2}/[0-9]{4}|[0-9]{4}-[0-9]{2}-[0-9]{2})`)
+	reLottery := regexp.MustCompile(`(?i)num\.?\s*loteria:\s*([0-9]+)`)
+	reLineStart := regexp.MustCompile(`^\s*([0-9]+-[0-9]+-[0-9]+)\s+([0-9]{1,2}/[0-9]{1,2}/[0-9]{4}|[0-9]{4}-[0-9]{2}-[0-9]{2})\s+(.+)$`)
+	reDateStart := regexp.MustCompile(`^([0-9]{1,2}/[0-9]{1,2}/[0-9]{4}|[0-9]{4}-[0-9]{2}-[0-9]{2})\s+`)
+	rePercentEnd := regexp.MustCompile(`([0-9]+(?:[.,][0-9]+)?)\s*$`)
+	typeCandidates := []string{
+		"Lance Livre Desclassificado",
+		"Sorteio Ativo",
+		"Lance Livre",
+		"Lance Fixo",
+	}
+
+	for i := 0; i < len(lines); i++ {
+		l := normalizeLine(lines[i])
+		low := strings.ToLower(l)
+		if strings.HasPrefix(low, "grupo:") {
+			parts := strings.SplitN(l, ":", 2)
+			inline := ""
+			if len(parts) == 2 {
+				inline = strings.TrimSpace(parts[1])
+			}
+			if onlyDigitsLocal(inline) != "" {
+				groupRaw = inline
+			} else {
+				for j := i + 1; j < len(lines); j++ {
+					nxt := normalizeLine(lines[j])
+					if nxt == "" {
+						continue
+					}
+					if onlyDigitsLocal(nxt) != "" {
+						groupRaw = nxt
+					}
+					break
+				}
+			}
+		}
+		if strings.Contains(low, "data:") {
+			if m := reDate.FindStringSubmatch(l); len(m) > 1 && strings.TrimSpace(m[1]) != "" {
+				dateRaw = strings.TrimSpace(m[1])
+			}
+		}
+		if strings.Contains(low, "loteria") {
+			if m := reLottery.FindStringSubmatch(l); len(m) > 1 && strings.TrimSpace(m[1]) != "" {
+				lotteryRaw = strings.TrimSpace(m[1])
+			}
+		}
+	}
+
+	headerIdx := -1
+	for i := 0; i < len(lines); i++ {
+		l := strings.ToLower(normalizeLine(lines[i]))
+		if strings.Contains(l, "cota-r-d") && strings.Contains(l, "% lance") {
+			headerIdx = i
+			break
+		}
+	}
+	// fallback: sem cabeçalho bem formatado, começa na primeira linha de registro.
+	if headerIdx < 0 {
+		for i := 0; i < len(lines); i++ {
+			l := normalizeLine(lines[i])
+			if reLineStart.MatchString(l) {
+				headerIdx = i - 1
+				break
+			}
+		}
+	}
+	if headerIdx < 0 {
+		return nil, append(errorsList, "cabecalho da tabela nao encontrado (Cota-R-D ... % Lance ...)")
+	}
+
+	items := make([]assembleiaImportPreviewItem, 0, 100)
+	splitDataLine := func(line string) []string {
+		if strings.Contains(line, "\t") {
+			parts := strings.Split(line, "\t")
+			for i := range parts {
+				parts[i] = strings.TrimSpace(parts[i])
+			}
+			return parts
+		}
+		// fallback: texto com colunas alinhadas por espaços
+		re := regexp.MustCompile(`\s{2,}`)
+		parts := re.Split(strings.TrimSpace(line), -1)
+		for i := range parts {
+			parts[i] = strings.TrimSpace(parts[i])
+		}
+		return parts
+	}
+
+	for i := headerIdx + 1; i < len(lines); i++ {
+		line := normalizeLine(lines[i])
+		if line == "" {
+			continue
+		}
+		low := strings.ToLower(line)
+		if strings.Contains(low, "pagina ") || strings.Contains(low, "cota(s) encontrada") || strings.Contains(low, "resultado de assembleia") {
+			continue
+		}
+		m := reLineStart.FindStringSubmatch(line)
+		if len(m) < 4 {
+			continue
+		}
+		cota := strings.TrimSpace(m[1])
+		dataCont := strings.TrimSpace(m[2])
+		rest := strings.TrimSpace(m[3])
+
+		tipo := ""
+		for _, cand := range typeCandidates {
+			if strings.HasPrefix(strings.ToLower(rest), strings.ToLower(cand)) {
+				tipo = cand
+				rest = strings.TrimSpace(rest[len(cand):])
+				break
+			}
+		}
+		if tipo == "" {
+			// fallback: primeira palavra dupla como tipo
+			chunks := splitDataLine(rest)
+			if len(chunks) > 0 {
+				tipo = chunks[0]
+				rest = strings.TrimSpace(strings.TrimPrefix(rest, chunks[0]))
+			}
+		}
+
+		dataDesc := ""
+		if dm := reDateStart.FindStringSubmatch(rest); len(dm) > 1 {
+			dataDesc = strings.TrimSpace(dm[1])
+			rest = strings.TrimSpace(rest[len(dm[0]):])
+		}
+
+		perc := ""
+		if pm := rePercentEnd.FindStringSubmatch(rest); len(pm) > 1 {
+			perc = strings.TrimSpace(pm[1])
+			rest = strings.TrimSpace(rest[:len(rest)-len(pm[0])])
+		}
+
+		cliente := strings.TrimSpace(rest)
+
+		item := assembleiaImportPreviewItem{
+			CotaRD:             cota,
+			DataContemplacao:   strings.TrimSpace(firstNonEmpty(dataCont, dateRaw)),
+			TipoContemplacao:   strings.TrimSpace(tipo),
+			DataDesclassificao: strings.TrimSpace(dataDesc),
+			ClientName:         cliente,
+			PercLance:          perc,
+			Vendedor:           "",
+			Grupo:              strings.TrimSpace(groupRaw),
+			LoteriaFederal:     strings.TrimSpace(lotteryRaw),
+		}
+		items = append(items, item)
+	}
+
+	// Fallback robusto: se nada foi montado pela leitura linha-a-linha,
+	// tenta extrair direto do texto inteiro.
+	if len(items) == 0 {
+		whole := strings.ReplaceAll(raw, "\r\n", "\n")
+		whole = strings.ReplaceAll(whole, "\t", " ")
+		whole = strings.ReplaceAll(whole, "→", " ")
+		whole = strings.ReplaceAll(whole, "\u00a0", " ")
+		reRow := regexp.MustCompile(`(?m)^\s*([0-9]+-[0-9]+-[0-9]+)\s+([0-9]{1,2}/[0-9]{1,2}/[0-9]{4}|[0-9]{4}-[0-9]{2}-[0-9]{2})\s+(.+?)\s+([0-9]+(?:[.,][0-9]+)?)\s*$`)
+		matches := reRow.FindAllStringSubmatch(whole, -1)
+		for _, mm := range matches {
+			if len(mm) < 5 {
+				continue
+			}
+			cota := strings.TrimSpace(mm[1])
+			dataCont := strings.TrimSpace(mm[2])
+			mid := strings.TrimSpace(mm[3])
+			perc := strings.TrimSpace(mm[4])
+
+			tipo := ""
+			for _, cand := range typeCandidates {
+				if strings.HasPrefix(strings.ToLower(mid), strings.ToLower(cand)) {
+					tipo = cand
+					mid = strings.TrimSpace(mid[len(cand):])
+					break
+				}
+			}
+			if tipo == "" {
+				tipo = "Lance Livre"
+			}
+			dataDesc := ""
+			if dm := reDateStart.FindStringSubmatch(mid); len(dm) > 1 {
+				dataDesc = strings.TrimSpace(dm[1])
+				mid = strings.TrimSpace(mid[len(dm[0]):])
+			}
+			cliente := strings.TrimSpace(mid)
+
+			items = append(items, assembleiaImportPreviewItem{
+				CotaRD:             cota,
+				DataContemplacao:   strings.TrimSpace(firstNonEmpty(dataCont, dateRaw)),
+				TipoContemplacao:   strings.TrimSpace(tipo),
+				DataDesclassificao: strings.TrimSpace(dataDesc),
+				ClientName:         cliente,
+				PercLance:          perc,
+				Vendedor:           "",
+				Grupo:              strings.TrimSpace(groupRaw),
+				LoteriaFederal:     strings.TrimSpace(lotteryRaw),
+			})
+		}
+	}
+
+	return items, errorsList
+}
+
+func firstNonEmpty(a, b string) string {
+	if strings.TrimSpace(a) != "" {
+		return a
+	}
+	return b
+}
+
+func parseImportFloat(raw string) (sql.NullFloat64, error) {
+	return parseCSVFloat(raw)
+}
+
+func parseImportInt(raw string) (sql.NullInt64, error) {
+	return parseCSVInt(raw)
+}
+
+func normalizeImportDate(raw string) string {
+	return normalizeDateTimeToSQL(raw)
+}
+
+func (a *app) handleDBAssembleiasImportText(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, "config:database") {
+		return
+	}
+
+	var req assembleiaImportTextRequest
+	if r.Method == http.MethodGet {
+		q := r.URL.Query()
+		req.Action = strings.TrimSpace(q.Get("action"))
+		req.RawText = q.Get("raw_text")
+		req.DefaultGroupCode = q.Get("default_group_code")
+		req.DefaultContemplationDate = q.Get("default_contemplation_date")
+		req.DefaultFederalLottery = q.Get("default_federal_lottery")
+	} else {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeErr(w, http.StatusBadRequest, fmt.Errorf("payload invalido"))
+			return
+		}
+	}
+	if strings.TrimSpace(req.RawText) == "" {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("cole o texto da assembleia para continuar"))
+		return
+	}
+
+	items, parseErrors := parseAssembleiasRawText(req.RawText, req.DefaultGroupCode, req.DefaultContemplationDate, req.DefaultFederalLottery)
+
+	if strings.EqualFold(strings.TrimSpace(req.Action), "preview") || strings.TrimSpace(req.Action) == "" {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":     true,
+			"items":  items,
+			"count":  len(items),
+			"errors": parseErrors,
+		})
+		return
+	}
+
+	_, store, err := a.openStoreFromCurrentConfig()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	inserted := 0
+	skipped := 0
+	errorsList := make([]string, 0, 20)
+	errorsList = append(errorsList, parseErrors...)
+
+	for i, it := range items {
+		grp, gerr := parseImportInt(it.Grupo)
+		if gerr != nil {
+			if len(errorsList) < 20 {
+				errorsList = append(errorsList, fmt.Sprintf("registro %d: grupo invalido (%s)", i+1, it.Grupo))
+			}
+			skipped++
+			continue
+		}
+		lot, lerr := parseImportInt(it.LoteriaFederal)
+		if lerr != nil {
+			if len(errorsList) < 20 {
+				errorsList = append(errorsList, fmt.Sprintf("registro %d: loteria invalida (%s)", i+1, it.LoteriaFederal))
+			}
+			skipped++
+			continue
+		}
+		bid, berr := parseImportFloat(it.PercLance)
+		if berr != nil {
+			if len(errorsList) < 20 {
+				errorsList = append(errorsList, fmt.Sprintf("registro %d: percentual invalido (%s)", i+1, it.PercLance))
+			}
+			skipped++
+			continue
+		}
+		dateNorm := normalizeImportDate(it.DataContemplacao)
+		if strings.TrimSpace(dateNorm) == "" {
+			if len(errorsList) < 20 {
+				errorsList = append(errorsList, fmt.Sprintf("registro %d: data contemplacao obrigatoria", i+1))
+			}
+			skipped++
+			continue
+		}
+		disqNorm := normalizeImportDate(it.DataDesclassificao)
+
+		groupCode := int64(0)
+		if grp.Valid {
+			groupCode = grp.Int64
+		}
+		federalLottery := int64(0)
+		if lot.Valid {
+			federalLottery = lot.Int64
+		}
+		alreadyExists, exErr := store.ExistsAssembleiaByNaturalKey(
+			r.Context(),
+			groupCode,
+			strings.TrimSpace(it.CotaRD),
+			strings.TrimSpace(dateNorm),
+			federalLottery,
+		)
+		if exErr != nil {
+			if len(errorsList) < 20 {
+				errorsList = append(errorsList, fmt.Sprintf("registro %d: erro ao verificar duplicidade (%v)", i+1, exErr))
+			}
+			skipped++
+			continue
+		}
+		if alreadyExists {
+			skipped++
+			continue
+		}
+
+		_, serr := store.SaveAssembleia(r.Context(), db.AssembleiaRecord{
+			CotaRD:             strings.TrimSpace(it.CotaRD),
+			DataContemplacao:   sql.NullString{String: strings.TrimSpace(dateNorm), Valid: true},
+			TipoContemplacao:   strings.TrimSpace(it.TipoContemplacao),
+			DataDesclassificao: sql.NullString{String: strings.TrimSpace(disqNorm), Valid: strings.TrimSpace(disqNorm) != ""},
+			ClientName:         strings.TrimSpace(it.ClientName),
+			PercLance:          bid,
+			Vendedor:           strings.TrimSpace(it.Vendedor),
+			Grupo:              grp,
+			LoteriaFederal:     lot,
+		})
+		if serr != nil {
+			if len(errorsList) < 20 {
+				errorsList = append(errorsList, fmt.Sprintf("registro %d: erro ao salvar (%v)", i+1, serr))
+			}
+			skipped++
+			continue
+		}
+		inserted++
+	}
+
+	msg := fmt.Sprintf("Importação concluída. Inseridos: %d | Ignorados: %d", inserted, skipped)
+	a.logAudit(r, "DB_IMPORT_ASSEMBLEIAS_TEXT", "database", "", "", fmt.Sprintf("inserted=%d skipped=%d", inserted, skipped))
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":       true,
+		"message":  msg,
+		"inserted": inserted,
+		"skipped":  skipped,
+		"errors":   errorsList,
 	})
 }
 
