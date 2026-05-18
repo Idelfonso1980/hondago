@@ -4864,8 +4864,18 @@
     async function searchGrupoSemelhante(){
       const groupEl = document.getElementById("sol_grupo_atendido") || document.getElementById("sol_grupo");
       const code = String((groupEl && groupEl.value) || "").replace(/\D/g, "");
-      const installments = String((document.getElementById("sol_qtde_parcelas_atendidas")?.value || document.getElementById("sol_qtde_parcelas")?.value || "")).trim();
-      const bidRaw = percentInputToRaw(document.getElementById("sol_perc_lance_atendido")?.value || document.getElementById("sol_perc_lance")?.value || "");
+      const installments = String((
+        document.getElementById("sol_qtde_parcelas_atendidas")?.value ||
+        document.getElementById("sol_qtde_parcelas_atendida")?.value ||
+        document.getElementById("sol_qtde_parcelas")?.value ||
+        ""
+      )).trim();
+      const bidRaw = percentInputToRaw(
+        document.getElementById("sol_perc_lance_atendido")?.value ||
+        document.getElementById("sol_perc_lance_atendida")?.value ||
+        document.getElementById("sol_perc_lance")?.value ||
+        ""
+      );
       let url = "";
       let modeByGroup = true;
       if (code) {
@@ -4893,6 +4903,7 @@
       if (criteria) {
         if (modeByGroup) {
           criteria.textContent = "Base " + String(code) + " - Tipo: " + String(base.group_type || "-") + ", Plano: " + String(base.plan || "-") + ", Vencimento: " + String(base.due_day || "-") + ", Parcelas: " + String(base.parcelas || "-");
+          if (base.fallback_no_plan) criteria.textContent += " | fallback sem plano";
         } else {
           criteria.textContent = "Base sem grupo - Parcelas: " + String(base.parcelas || installments || "-") + ", Lance aprox.: " + escapeHtml(formatPercent(String(base.bid_percent || bidRaw || ""))) + " (\u00b1" + String(base.tolerance || "2.0") + ")";
         }

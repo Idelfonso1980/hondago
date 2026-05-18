@@ -17,6 +17,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"math"
 	"net"
 	"net/http"
 	neturl "net/url"
@@ -5378,7 +5379,34 @@ func (a *app) handleGrupoAtivoSimilares(w http.ResponseWriter, r *http.Request) 
 		if candidateLimit > 10000 {
 			candidateLimit = 10000
 		}
-		records, _, qErr := store.SearchGruposAtivos(r.Context(), "", "", sqlFilters, candidateLimit, 0)
+		loadCandidates := func() ([]db.GrupoAtivoRecord, error) {
+			const pageSize = 500
+			capHint := candidateLimit
+			if capHint > 2000 {
+				capHint = 2000
+			}
+			all := make([]db.GrupoAtivoRecord, 0, capHint)
+			offset := 0
+			for len(all) < candidateLimit {
+				page, _, qErr := store.SearchGruposAtivos(r.Context(), "", "", sqlFilters, pageSize, offset)
+				if qErr != nil {
+					return nil, qErr
+				}
+				if len(page) == 0 {
+					break
+				}
+				all = append(all, page...)
+				if len(page) < pageSize {
+					break
+				}
+				offset += pageSize
+			}
+			if len(all) > candidateLimit {
+				all = all[:candidateLimit]
+			}
+			return all, nil
+		}
+		records, qErr := loadCandidates()
 		if qErr != nil {
 			writeErr(w, http.StatusInternalServerError, qErr)
 			return
@@ -5416,6 +5444,52 @@ func (a *app) handleGrupoAtivoSimilares(w http.ResponseWriter, r *http.Request) 
 				break
 			}
 		}
+		fallbackOnlyInstallments := false
+		if len(out) == 0 {
+			// Fallback: sem match por percentual, retornar por parcelas
+			// ordenando por proximidade do lance informado.
+			fallbackOnlyInstallments = true
+			candidates := make([]grupoSimilarPayload, 0, len(records))
+			for i := range records {
+				rec := records[i]
+				parcelas := calculateParcelasFromGrupoAtivo(&rec, holidays, now)
+				if len(parcFilters) > 0 && !matchesParcFilter(parcelas, parcFilters) {
+					continue
+				}
+				item := grupoSimilarPayload{
+					Grupo:      rec.Grupo,
+					Tipo:       rec.TipoGrupo,
+					Vencimento: rec.Vencimento,
+					Prazo:      rec.Prazo,
+					Parcelas:   parcelas,
+					Produto:    rec.Plano,
+				}
+				if rec.PercLance.Valid {
+					item.PercLance = strconv.FormatFloat(rec.PercLance.Float64, 'f', -1, 64)
+				}
+				candidates = append(candidates, item)
+			}
+			sort.SliceStable(candidates, func(i, j int) bool {
+				pi, errI := strconv.ParseFloat(strings.ReplaceAll(strings.TrimSpace(candidates[i].PercLance), ",", "."), 64)
+				pj, errJ := strconv.ParseFloat(strings.ReplaceAll(strings.TrimSpace(candidates[j].PercLance), ",", "."), 64)
+				di := math.MaxFloat64
+				dj := math.MaxFloat64
+				if errI == nil {
+					di = math.Abs(pi - bid)
+				}
+				if errJ == nil {
+					dj = math.Abs(pj - bid)
+				}
+				if di != dj {
+					return di < dj
+				}
+				return candidates[i].Grupo < candidates[j].Grupo
+			})
+			if len(candidates) > limit {
+				candidates = candidates[:limit]
+			}
+			out = candidates
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ok":    true,
 			"found": true,
@@ -5429,6 +5503,7 @@ func (a *app) handleGrupoAtivoSimilares(w http.ResponseWriter, r *http.Request) 
 				"bid_percent": bid,
 				"tolerance":   tolerance,
 				"filters":     filters,
+				"fallback_only_installments": fallbackOnlyInstallments,
 			},
 			"items": out,
 			"count": len(out),
@@ -5455,14 +5530,15 @@ func (a *app) handleGrupoAtivoSimilares(w http.ResponseWriter, r *http.Request) 
 	now := time.Now().In(utcMinus3Loc)
 	baseParcelas := calculateParcelasFromGrupoAtivo(baseAG, holidays, now)
 
-	filters := fmt.Sprintf(
+	planBase := strings.TrimSpace(baseAG.Plano)
+	filtersWithPlan := fmt.Sprintf(
 		"tipo:%s;venc:%d;plano:%s;parc:%d",
 		strings.TrimSpace(baseAG.TipoGrupo),
 		baseAG.Vencimento,
-		strings.TrimSpace(baseAG.Plano),
+		planBase,
 		baseParcelas,
 	)
-	sqlFilters, parcFilters := splitGAFiltersForSQL(filters)
+	sqlFilters, parcFilters := splitGAFiltersForSQL(filtersWithPlan)
 	// Importante: buscar uma janela maior antes de filtrar parcelas em memória,
 	// para não perder grupos antigos por causa de LIMIT precoce no SQL.
 	candidateLimit := limit * 30
@@ -5472,32 +5548,60 @@ func (a *app) handleGrupoAtivoSimilares(w http.ResponseWriter, r *http.Request) 
 	if candidateLimit > 10000 {
 		candidateLimit = 10000
 	}
-	records, _, qErr := store.SearchGruposAtivos(r.Context(), "", "", sqlFilters, candidateLimit, 0)
+	queryOut := func(filters string) ([]grupoSimilarPayload, error) {
+		records, _, qErr := store.SearchGruposAtivos(r.Context(), "", "", filters, candidateLimit, 0)
+		if qErr != nil {
+			return nil, qErr
+		}
+		out := make([]grupoSimilarPayload, 0, len(records))
+		for i := range records {
+			rec := records[i]
+			parcelas := calculateParcelasFromGrupoAtivo(&rec, holidays, now)
+			if len(parcFilters) > 0 && !matchesParcFilter(parcelas, parcFilters) {
+				continue
+			}
+			item := grupoSimilarPayload{
+				Grupo:      rec.Grupo,
+				Tipo:       rec.TipoGrupo,
+				Vencimento: rec.Vencimento,
+				Prazo:      rec.Prazo,
+				Parcelas:   parcelas,
+				Produto:    rec.Plano,
+			}
+			if rec.PercLance.Valid {
+				item.PercLance = strconv.FormatFloat(rec.PercLance.Float64, 'f', -1, 64)
+			}
+			out = append(out, item)
+			if len(out) >= limit {
+				break
+			}
+		}
+		return out, nil
+	}
+
+	out, qErr := queryOut(sqlFilters)
 	if qErr != nil {
 		writeErr(w, http.StatusInternalServerError, qErr)
 		return
 	}
-	out := make([]grupoSimilarPayload, 0, len(records))
-	for i := range records {
-		rec := records[i]
-		parcelas := calculateParcelasFromGrupoAtivo(&rec, holidays, now)
-		if len(parcFilters) > 0 && !matchesParcFilter(parcelas, parcFilters) {
-			continue
+	usedFallbackWithoutPlan := false
+	if len(out) == 0 && planBase != "" {
+		// Fallback controlado: quando não houver resultados no mesmo plano,
+		// tenta apenas por tipo + vencimento + parcelas.
+		filtersNoPlan := fmt.Sprintf(
+			"tipo:%s;venc:%d;parc:%d",
+			strings.TrimSpace(baseAG.TipoGrupo),
+			baseAG.Vencimento,
+			baseParcelas,
+		)
+		sqlFiltersNoPlan, _ := splitGAFiltersForSQL(filtersNoPlan)
+		out, qErr = queryOut(sqlFiltersNoPlan)
+		if qErr != nil {
+			writeErr(w, http.StatusInternalServerError, qErr)
+			return
 		}
-		item := grupoSimilarPayload{
-			Grupo:      rec.Grupo,
-			Tipo:       rec.TipoGrupo,
-			Vencimento: rec.Vencimento,
-			Prazo:      rec.Prazo,
-			Parcelas:   parcelas,
-			Produto:    rec.Plano,
-		}
-		if rec.PercLance.Valid {
-			item.PercLance = strconv.FormatFloat(rec.PercLance.Float64, 'f', -1, 64)
-		}
-		out = append(out, item)
-		if len(out) >= limit {
-			break
+		if len(out) > 0 {
+			usedFallbackWithoutPlan = true
 		}
 	}
 
@@ -5511,7 +5615,8 @@ func (a *app) handleGrupoAtivoSimilares(w http.ResponseWriter, r *http.Request) 
 			"due_day":     baseAG.Vencimento,
 			"term_months": baseAG.Prazo,
 			"parcelas":    baseParcelas,
-			"filters":     filters,
+			"filters":     filtersWithPlan,
+			"fallback_no_plan": usedFallbackWithoutPlan,
 		},
 		"items": out,
 		"count": len(out),
