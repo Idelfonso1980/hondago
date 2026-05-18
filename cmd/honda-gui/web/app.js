@@ -65,7 +65,10 @@
     let passwordPolicyLimit = 50;
     let passwordPolicyTotal = 0;
     let appConfirmResolver = null;
+    let appMessageOnClose = null;
     let assembleiaGrupoLocked = false;
+    let assembleiaImportPreviewRows = [];
+    let gaAssembleiaImportPreviewRows = [];
 
     function getCookieValue(name) {
       const target = String(name || "").trim();
@@ -361,9 +364,10 @@
       if (modal) modal.classList.add("hidden");
     }
 
-    function openAppMessageModal(title, body, subtitle){
+    function openAppMessageModal(title, body, subtitle, onClose){
       const modal = document.getElementById("appMessageModal");
       if (!modal) return;
+      appMessageOnClose = typeof onClose === "function" ? onClose : null;
       const t = document.getElementById("appMessageTitle");
       const s = document.getElementById("appMessageSubtitle");
       const b = document.getElementById("appMessageBody");
@@ -380,6 +384,23 @@
       if (ev && ev.target && ev.target.id !== "appMessageModal") return;
       const modal = document.getElementById("appMessageModal");
       if (modal) modal.classList.add("hidden");
+      if (modal && modal.dataset && modal.dataset.clearTargetId) {
+        const clearId = String(modal.dataset.clearTargetId || "").trim();
+        if (clearId) {
+          const target = document.getElementById(clearId);
+          if (target) target.value = "";
+        }
+        if (modal.dataset.clearPreview === "1") {
+          try { renderAssembleiasImportPreview([]); } catch (_) {}
+        }
+        delete modal.dataset.clearTargetId;
+        delete modal.dataset.clearPreview;
+      }
+      if (appMessageOnClose) {
+        const cb = appMessageOnClose;
+        appMessageOnClose = null;
+        try { cb(); } catch (_) {}
+      }
     }
 
     function openAppConfirmModal(title, body, subtitle){
@@ -4111,6 +4132,7 @@
           "<td><div class=\"auth-actions\">" +
             "<button type=\"button\" class=\"auth-action-btn\" title=\"Editar\" aria-label=\"Editar\" onclick=\"openGrupoAtivoEditModal(" + String(id) + ")\">" + authActionIcon("edit") + "</button>" +
             "<button type=\"button\" class=\"auth-action-btn auth-action-success\" title=\"Adicionar Assembleia\" aria-label=\"Adicionar Assembleia\" onclick=\"openAssembleiaCreateModalFromGroup(" + String(g.group_code || 0) + ")\">" + authActionIcon("add") + "</button>" +
+            "<button type=\"button\" class=\"auth-action-btn\" title=\"Importar Assembleia (Texto)\" aria-label=\"Importar Assembleia (Texto)\" onclick=\"openGaAssembleiasImportModal(" + String(g.group_code || 0) + ")\">" + authActionIcon("logs") + "</button>" +
             "<button type=\"button\" class=\"auth-action-btn auth-action-danger\" title=\"Excluir\" aria-label=\"Excluir\" onclick=\"deleteGrupoAtivo(" + String(id) + ")\">" + authActionIcon("delete") + "</button>" +
           "</div></td>" +
         "</tr>";
@@ -4941,6 +4963,341 @@
       }
     }
 
+    function renderAssembleiasImportPreview(items){
+      assembleiaImportPreviewRows = Array.isArray(items) ? items : [];
+      const body = document.getElementById("dbAssembleiasPreviewBody");
+      const saveBtn = document.getElementById("db_save_assemblies_btn");
+      if (!body) return;
+      if (!assembleiaImportPreviewRows.length) {
+        body.innerHTML = "<tr><td colspan=\"9\">Sem dados. Cole o texto e clique em \"Montar Registros\".</td></tr>";
+        if (saveBtn) saveBtn.disabled = true;
+        return;
+      }
+      body.innerHTML = assembleiaImportPreviewRows.map((r) =>
+        "<tr>" +
+          "<td>" + escapeHtml(String(r.group_code || "")) + "</td>" +
+          "<td>" + escapeHtml(String(r.cota_rd || "")) + "</td>" +
+          "<td>" + escapeHtml(formatDateBR(String(r.contemplation_date || ""))) + "</td>" +
+          "<td>" + escapeHtml(String(r.contemplation_type || "")) + "</td>" +
+          "<td>" + escapeHtml(formatDateBR(String(r.disqualification_date || ""))) + "</td>" +
+          "<td>" + escapeHtml(String(r.client_name || "")) + "</td>" +
+          "<td>" + escapeHtml(formatPercent(String(r.bid_percent || ""))) + "</td>" +
+          "<td>" + escapeHtml(String(r.seller_name || "")) + "</td>" +
+          "<td>" + escapeHtml(String(r.federal_lottery || "")) + "</td>" +
+        "</tr>"
+      ).join("");
+      if (saveBtn) saveBtn.disabled = false;
+    }
+
+    function extractDigitsOnly(v){
+      return String(v || "").replace(/\D+/g, "");
+    }
+
+    function extractGroupCodeFromAssembleiaRawText(rawText){
+      const src = String(rawText || "")
+        .replace(/\u00A0/g, " ")
+        .replace(/\r/g, "\n")
+        .replace(/\t/g, " ");
+      const m1 = src.match(/(?:^|\n)\s*Grupo\s*:\s*([0-9]{3,})\b/i);
+      if (m1 && m1[1]) return extractDigitsOnly(m1[1]);
+      const m2 = src.match(/(?:^|\n)\s*Grupo\s*:\s*\n+\s*([0-9]{3,})\b/i);
+      if (m2 && m2[1]) return extractDigitsOnly(m2[1]);
+      return "";
+    }
+
+    function validateGaImportGroup(rawText){
+      const expected = extractDigitsOnly(document.getElementById("ga_txt_default_group")?.value || "");
+      if (!expected) {
+        return {ok: false, message: "Grupo padrão não informado no modal de importação."};
+      }
+      const found = extractGroupCodeFromAssembleiaRawText(rawText);
+      if (!found) {
+        return {
+          ok: false,
+          message: "Não foi possível identificar o Grupo no texto colado. Confira o bloco 'Grupo:' e tente novamente."
+        };
+      }
+      if (found !== expected) {
+        return {
+          ok: false,
+          message: "Divergência de grupo.\n\nGrupo padrão: " + expected + "\nGrupo no texto: " + found + "\n\nCorrija o texto antes de processar."
+        };
+      }
+      return {ok: true, expected, found};
+    }
+
+    function renderGaAssembleiasImportPreview(items){
+      gaAssembleiaImportPreviewRows = Array.isArray(items) ? items : [];
+      const body = document.getElementById("gaAssembleiasPreviewBody");
+      const saveBtn = document.getElementById("ga_save_assemblies_btn");
+      if (!body) return;
+      if (!gaAssembleiaImportPreviewRows.length) {
+        body.innerHTML = "<tr><td colspan=\"9\">Sem dados. Cole o texto e clique em \"Montar Registros\".</td></tr>";
+        if (saveBtn) saveBtn.disabled = true;
+        return;
+      }
+      body.innerHTML = gaAssembleiaImportPreviewRows.map((r) =>
+        "<tr>" +
+          "<td>" + escapeHtml(String(r.group_code || "")) + "</td>" +
+          "<td>" + escapeHtml(String(r.cota_rd || "")) + "</td>" +
+          "<td>" + escapeHtml(formatDateBR(String(r.contemplation_date || ""))) + "</td>" +
+          "<td>" + escapeHtml(String(r.contemplation_type || "")) + "</td>" +
+          "<td>" + escapeHtml(formatDateBR(String(r.disqualification_date || ""))) + "</td>" +
+          "<td>" + escapeHtml(String(r.client_name || "")) + "</td>" +
+          "<td>" + escapeHtml(formatPercent(String(r.bid_percent || ""))) + "</td>" +
+          "<td>" + escapeHtml(String(r.seller_name || "")) + "</td>" +
+          "<td>" + escapeHtml(String(r.federal_lottery || "")) + "</td>" +
+        "</tr>"
+      ).join("");
+      if (saveBtn) saveBtn.disabled = false;
+    }
+
+    function openGaAssembleiasImportModal(groupCode){
+      const normalized = extractDigitsOnly(groupCode);
+      const groupEl = document.getElementById("ga_txt_default_group");
+      const txtEl = document.getElementById("ga_assembleias_raw_text");
+      if (groupEl) groupEl.value = normalized;
+      if (txtEl) txtEl.value = "";
+      renderGaAssembleiasImportPreview([]);
+      const modal = document.getElementById("gaAssembleiaImportModal");
+      if (modal) modal.classList.remove("hidden");
+      setStatus("Importação de assembleias para grupo " + normalized);
+    }
+
+    function closeGaAssembleiasImportModal(ev){
+      if (ev && ev.target && ev.target.id !== "gaAssembleiaImportModal") return;
+      const modal = document.getElementById("gaAssembleiaImportModal");
+      if (modal) modal.classList.add("hidden");
+    }
+
+    async function previewGaAssembleiasFromText(){
+      try {
+        const rawText = document.getElementById("ga_assembleias_raw_text")?.value || "";
+        if (!rawText.trim()) {
+          setStatus("Cole o texto da assembleia para montar os registros");
+          renderGaAssembleiasImportPreview([]);
+          return;
+        }
+        const validation = validateGaImportGroup(rawText);
+        if (!validation.ok) {
+          renderGaAssembleiasImportPreview([]);
+          setStatus("Validação de grupo falhou");
+          openAppMessageModal("Sales Ops", validation.message, "Importação de Assembleias");
+          return;
+        }
+        const body = document.getElementById("gaAssembleiasPreviewBody");
+        if (body) body.innerHTML = "<tr><td colspan=\"9\">Montando registros...</td></tr>";
+        setStatus("Montando registros da assembleia...");
+        const payload = {
+          action: "preview",
+          raw_text: rawText,
+          default_group_code: document.getElementById("ga_txt_default_group")?.value || ""
+        };
+        const res = await fetch("/api/db/assembleias/import-text", {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.ok === false) {
+          setStatus(data.message || "Erro ao montar registros");
+          renderGaAssembleiasImportPreview([]);
+          return;
+        }
+        renderGaAssembleiasImportPreview(data.items || []);
+        setStatus("Registros montados: " + String(data.count || 0));
+      } catch (err) {
+        setStatus("Falha ao montar registros: " + (err && err.message ? err.message : String(err)));
+        renderGaAssembleiasImportPreview([]);
+      }
+    }
+
+    async function saveGaAssembleiasFromText(){
+      const saveBtn = document.getElementById("ga_save_assemblies_btn");
+      if (saveBtn && saveBtn.disabled) return;
+      if (!gaAssembleiaImportPreviewRows.length) {
+        setStatus("Monte os registros antes de salvar");
+        return;
+      }
+      const rawText = document.getElementById("ga_assembleias_raw_text")?.value || "";
+      const validation = validateGaImportGroup(rawText);
+      if (!validation.ok) {
+        setStatus("Validação de grupo falhou");
+        openAppMessageModal("Sales Ops", validation.message, "Importação de Assembleias");
+        return;
+      }
+      setStatus("Inserindo assembleias no banco...");
+      if (saveBtn) saveBtn.disabled = true;
+      const payload = {
+        action: "save",
+        raw_text: rawText,
+        default_group_code: document.getElementById("ga_txt_default_group")?.value || ""
+      };
+      try {
+        const res = await fetch("/api/db/assembleias/import-text", {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.ok === false) {
+          setStatus(data.message || "Erro ao importar assembleias");
+          return;
+        }
+        setStatus(data.message || "Assembleias inseridas");
+        const errs = Array.isArray(data.errors) && data.errors.length ? ("\n\nErros:\n" + data.errors.join("\n")) : "";
+        openAppMessageModal(
+          "Sales Ops",
+          (data.message || "Importação concluída.") + errs,
+          "Importação de Assembleias",
+          () => {
+            const txt = document.getElementById("ga_assembleias_raw_text");
+            if (txt) txt.value = "";
+            renderGaAssembleiasImportPreview([]);
+            closeGaAssembleiasImportModal();
+          }
+        );
+        await triggerAssembleiasSearch();
+      } finally {
+        if (saveBtn) saveBtn.disabled = false;
+      }
+    }
+
+    async function previewAssembleiasFromText(){
+      try {
+        const rawText = document.getElementById("db_assembleias_raw_text")?.value || "";
+        if (!rawText.trim()) {
+          setStatus("Cole o texto da assembleia para montar os registros");
+          renderAssembleiasImportPreview([]);
+          return;
+        }
+        // Immediate visual feedback to prove click is working.
+        const body = document.getElementById("dbAssembleiasPreviewBody");
+        if (body) body.innerHTML = "<tr><td colspan=\"9\">Montando registros...</td></tr>";
+
+        setStatus("Montando registros da assembleia...");
+        const payload = {
+          action: "preview",
+          raw_text: rawText,
+          default_group_code: document.getElementById("db_txt_default_group")?.value || "",
+          default_contemplation_date: document.getElementById("db_txt_default_contemplation_date")?.value || "",
+          default_federal_lottery: document.getElementById("db_txt_default_lottery")?.value || ""
+        };
+        const res = await fetch("/api/db/assembleias/import-text", {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify(payload)
+        });
+        const rawResp = await res.text();
+        let data = {};
+        try {
+          data = rawResp ? JSON.parse(rawResp) : {};
+        } catch (e) {
+          setStatus("Erro ao ler resposta da API (preview): " + String((e && e.message) || e));
+          renderAssembleiasImportPreview([]);
+          return;
+        }
+        if (!res.ok || data.ok === false) {
+          setStatus(data.message || "Erro ao montar registros");
+          renderAssembleiasImportPreview([]);
+          return;
+        }
+        renderAssembleiasImportPreview(data.items || []);
+        setStatus("Registros montados: " + String(data.count || 0));
+        if (Array.isArray(data.errors) && data.errors.length) {
+          openAppMessageModal("Sales Ops", "Montagem concluída com alertas:\n\n" + data.errors.join("\n"), "Importação de Assembleias");
+        }
+      } catch (err) {
+        setStatus("Falha ao montar registros: " + (err && err.message ? err.message : String(err)));
+        renderAssembleiasImportPreview([]);
+      }
+    }
+
+    async function saveAssembleiasFromText(){
+      const saveBtn = document.getElementById("db_save_assemblies_btn");
+      if (saveBtn && saveBtn.disabled) return;
+      if (!assembleiaImportPreviewRows.length) {
+        setStatus("Monte os registros antes de salvar");
+        return;
+      }
+      const rawText = document.getElementById("db_assembleias_raw_text")?.value || "";
+      setStatus("Inserindo assembleias no banco...");
+      if (saveBtn) saveBtn.disabled = true;
+      const payload = {
+        action: "save",
+        raw_text: rawText,
+        default_group_code: document.getElementById("db_txt_default_group")?.value || "",
+        default_contemplation_date: document.getElementById("db_txt_default_contemplation_date")?.value || "",
+        default_federal_lottery: document.getElementById("db_txt_default_lottery")?.value || ""
+      };
+      try {
+        const res = await fetch("/api/db/assembleias/import-text", {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.ok === false) {
+          setStatus(data.message || "Erro ao importar assembleias");
+          return;
+        }
+        setStatus(data.message || "Assembleias inseridas");
+        const errs = Array.isArray(data.errors) && data.errors.length ? ("\n\nErros:\n" + data.errors.join("\n")) : "";
+        openAppMessageModal(
+          "Sales Ops",
+          (data.message || "Importação concluída.") + errs,
+          "Importação de Assembleias",
+          () => {
+            const txt = document.getElementById("db_assembleias_raw_text");
+            if (txt) txt.value = "";
+            renderAssembleiasImportPreview([]);
+          }
+        );
+        const msgModal = document.getElementById("appMessageModal");
+        if (msgModal && msgModal.dataset) {
+          msgModal.dataset.clearTargetId = "db_assembleias_raw_text";
+          msgModal.dataset.clearPreview = "1";
+        }
+        await triggerAssembleiasSearch();
+      } finally {
+        if (saveBtn) saveBtn.disabled = false;
+      }
+    }
+
+    // Expose handlers for inline onclick buttons in Database tab.
+    window.previewAssembleiasFromText = previewAssembleiasFromText;
+    window.saveAssembleiasFromText = saveAssembleiasFromText;
+    window.__assembleiasMountClick = async function(ev){
+      if (ev && ev.preventDefault) ev.preventDefault();
+      if (typeof window.previewAssembleiasFromText !== "function") {
+        setStatus("Erro: função de montagem não carregada");
+        return false;
+      }
+      await window.previewAssembleiasFromText();
+      return false;
+    };
+    window.__assembleiasSaveClick = function(ev){
+      if (ev && ev.preventDefault) ev.preventDefault();
+      if (typeof window.saveAssembleiasFromText !== "function") {
+        setStatus("Erro: função de salvar não carregada");
+        return false;
+      }
+      window.saveAssembleiasFromText();
+      return false;
+    };
+    window.openGaAssembleiasImportModal = openGaAssembleiasImportModal;
+    window.closeGaAssembleiasImportModal = closeGaAssembleiasImportModal;
+    window.__gaAssembleiasMountClick = async function(ev){
+      if (ev && ev.preventDefault) ev.preventDefault();
+      await previewGaAssembleiasFromText();
+      return false;
+    };
+    window.__gaAssembleiasSaveClick = async function(ev){
+      if (ev && ev.preventDefault) ev.preventDefault();
+      await saveGaAssembleiasFromText();
+      return false;
+    };
+
     async function refreshDBRestoreCapabilities() {
       const backupBtn = document.getElementById("db_backup_btn");
       const restoreBtn = document.getElementById("db_restore_btn");
@@ -5489,6 +5846,8 @@
         triggerGruposAtivosSearch();
       }
     });
+    // Handlers dos botoes de importacao de assembleias sao feitos via onclick
+    // no HTML para evitar binding duplicado e execucao dupla.
     document.getElementById("ga_filter_value").addEventListener("keydown", (ev) => {
       if (ev.key === "Enter") {
         ev.preventDefault();

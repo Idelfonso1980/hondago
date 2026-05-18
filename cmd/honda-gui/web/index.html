@@ -890,8 +890,10 @@
               <div id="ga_filter_chips" class="active-filter-chips"></div>
 
               <div class="auth-toolbar">
-                <button class="btn" onclick="openGrupoAtivoCreateModal()">Adicionar</button>
-                <button class="btn" onclick="deleteSelectedGruposAtivos()">Deletar Selecionados</button>
+                <div class="toolbar-left-actions">
+                  <button class="btn" onclick="openGrupoAtivoCreateModal()">Adicionar</button>
+                  <button class="btn" onclick="deleteSelectedGruposAtivos()">Deletar Selecionados</button>
+                </div>
                 <div class="table-pager">
                   <label for="gaLimit">Página</label>
                   <select id="gaLimit" onchange="onGruposAtivosLimitChange()">
@@ -1124,7 +1126,9 @@
                 </div>
               </div>
               <div class="auth-toolbar">
-                <button class="btn" onclick="openAssembleiaCreateModal()">Adicionar</button>
+                <div class="toolbar-left-actions">
+                  <button class="btn" onclick="openAssembleiaCreateModal()">Adicionar</button>
+                </div>
                 <div class="table-pager">
                   <label for="assembleiaLimit">Página</label>
                   <select id="assembleiaLimit" onchange="onAssembleiasLimitChange()">
@@ -1264,6 +1268,55 @@
                   <button id="db_backup_btn" class="btn btn-execute" onclick="downloadDatabaseBackup()">Gerar Backup (.sql)</button>
                   <button id="db_restore_btn" class="btn" onclick="document.getElementById('db_restore_file').click()">Restaurar do Backup</button>
                   <input type="file" id="db_restore_file" style="display:none" onchange="uploadDatabaseRestore(this)" accept=".sql" />
+                </div>
+              </div>
+
+              <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid var(--border);">
+                <h4>Importar Assembleias (Texto)</h4>
+                <p style="font-size: 13px; color: #666; margin-bottom: 15px;">
+                  Cole o texto bruto da página de resultado da assembleia, monte os registros para validar e depois confirme a inserção no banco.
+                </p>
+                <div class="field-grid">
+                  <div class="field">
+                    <label>Grupo padrão (opcional)</label>
+                    <input id="db_txt_default_group" placeholder="Ex: 45192" />
+                  </div>
+                  <div class="field">
+                    <label>Data Contemplação padrão (opcional)</label>
+                    <input id="db_txt_default_contemplation_date" placeholder="dd/mm/aaaa" />
+                  </div>
+                  <div class="field">
+                    <label>Loteria Federal padrão (opcional)</label>
+                    <input id="db_txt_default_lottery" placeholder="Ex: 83358" />
+                  </div>
+                  <div class="field full">
+                    <label>Texto da Assembleia</label>
+                    <textarea id="db_assembleias_raw_text" rows="10" placeholder="Cole aqui o texto completo da assembleia..."></textarea>
+                  </div>
+                </div>
+                <div class="form-footer" style="justify-content: flex-start; gap: 15px;">
+                  <button type="button" id="db_mount_assemblies_btn" class="btn" onclick="return __assembleiasMountClick(event)">Montar Registros</button>
+                  <button type="button" id="db_save_assemblies_btn" class="btn btn-execute" onclick="return __assembleiasSaveClick(event)" disabled>Adicionar no Banco</button>
+                </div>
+                <div class="auth-table-wrap" style="margin-top: 12px;">
+                  <table class="auth-table">
+                    <thead>
+                      <tr>
+                        <th>Grupo</th>
+                        <th>Cota-R-D</th>
+                        <th>Data Contemplação</th>
+                        <th>Tipo Contemplação</th>
+                        <th>Data Desclassificação</th>
+                        <th>Nome do Consorciado</th>
+                        <th>% Lance</th>
+                        <th>Nome do Vendedor</th>
+                        <th>Num. Loteria</th>
+                      </tr>
+                    </thead>
+                    <tbody id="dbAssembleiasPreviewBody">
+                      <tr><td colspan="9">Sem dados. Cole o texto e clique em "Montar Registros".</td></tr>
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </section>
@@ -1740,6 +1793,56 @@
       </div>
       <div class="diag-body">
         <textarea id="statusDetailsText" class="status-detail-text" readonly></textarea>
+      </div>
+    </div>
+  </div>
+
+  <div id="gaAssembleiaImportModal" class="modal hidden" onclick="closeGaAssembleiasImportModal(event)">
+    <div class="modal-card auth-modal-card" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <div>
+          <h3>Importar Assembleias (Texto)</h3>
+          <p class="modal-sub">Monte e confirme os registros para o grupo selecionado.</p>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button class="btn" onclick="closeGaAssembleiasImportModal()">Fechar</button>
+        </div>
+      </div>
+      <div class="diag-body">
+        <div class="field-grid">
+          <div class="field">
+            <label>Grupo padrão</label>
+            <input id="ga_txt_default_group" class="readonly" readonly />
+          </div>
+          <div class="field full">
+            <label>Texto da Assembleia</label>
+            <textarea id="ga_assembleias_raw_text" rows="20" placeholder="Cole aqui o texto completo da assembleia..."></textarea>
+          </div>
+        </div>
+        <div class="form-footer" style="justify-content:flex-start; gap:15px;">
+          <button type="button" id="ga_mount_assemblies_btn" class="btn" onclick="return __gaAssembleiasMountClick(event)">Montar Registros</button>
+          <button type="button" id="ga_save_assemblies_btn" class="btn btn-execute" onclick="return __gaAssembleiasSaveClick(event)" disabled>Adicionar no Banco</button>
+        </div>
+        <div class="auth-table-wrap ga-assembleias-preview-wrap" style="margin-top: 12px;">
+          <table class="auth-table ga-assembleias-preview-table">
+            <thead>
+              <tr>
+                <th>Grupo</th>
+                <th>Cota-R-D</th>
+                <th>Data Contemplação</th>
+                <th>Tipo Contemplação</th>
+                <th>Data Desclassificação</th>
+                <th>Nome do Consorciado</th>
+                <th>% Lance</th>
+                <th>Nome do Vendedor</th>
+                <th>Num. Loteria</th>
+              </tr>
+            </thead>
+            <tbody id="gaAssembleiasPreviewBody">
+              <tr><td colspan="9">Sem dados. Cole o texto e clique em "Montar Registros".</td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>
