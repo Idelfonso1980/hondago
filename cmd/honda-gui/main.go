@@ -4602,7 +4602,11 @@ func (a *app) recalculateAllActiveGroupsBidPercentCalc(ctx context.Context, stor
 		}
 		for i := range items {
 			rec := items[i]
-			if err := store.UpdateGrupoAtivoBidPercentCalc(ctx, rec.ID, rec.PercLance); err != nil {
+			avg, err := store.GetAverageMinBidPercentLast6Months(ctx, rec.Grupo)
+			if err != nil {
+				return updated, err
+			}
+			if err := store.UpdateGrupoAtivoBidPercentCalc(ctx, rec.ID, avg); err != nil {
 				return updated, err
 			}
 			updated++
