@@ -474,6 +474,11 @@
                 <div class="field"><label>Licenciado</label><select id="request_plano"><option value="N&atilde;o" selected>N&atilde;o</option><option value="Sim">Sim</option></select></div>
                 <div class="field"><label>Grupo</label><input id="request_grupo" onblur="autoFillSolicitacaoByGroup('request')" /></div>
                 <div class="field"><label>Qtde Parcelas</label><input id="request_qtde_parcelas" /></div>
+                <div class="field full"><label>Produto</label>
+                  <select id="request_produto">
+                    <option value="">Selecione o produto</option>
+                  </select>
+                </div>
                 <div class="field"><label>Perc. Lance</label><input id="request_perc_lance" /></div>
                 <div class="field"><label>Com Restri&ccedil;&atilde;o</label><select id="request_com_restricao"><option value="N&atilde;o" selected>N&atilde;o</option><option value="Sim">Sim</option></select></div>
                 <div class="field full"><label>Observa&ccedil;&atilde;o</label><input id="request_observacao" /></div>
@@ -1255,6 +1260,8 @@
 
               <div class="form-footer">
                 <button class="btn" onclick="createDatabaseTables()">Atualizar Tabelas</button>
+                <button class="btn" onclick="recalculateParcelasCalc()">Atualizar Parcelas</button>
+                <button class="btn" onclick="recalculatePercLanceCalc()">Atualizar Perc. Lance</button>
                 <button class="btn" onclick="clearDatabaseTables()">Limpar Dados</button>
                 <button class="btn" onclick="dropDatabaseTables()">Remover Tabelas</button>
               </div>
@@ -1271,54 +1278,6 @@
                 </div>
               </div>
 
-              <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid var(--border);">
-                <h4>Importar Assembleias (Texto)</h4>
-                <p style="font-size: 13px; color: #666; margin-bottom: 15px;">
-                  Cole o texto bruto da página de resultado da assembleia, monte os registros para validar e depois confirme a inserção no banco.
-                </p>
-                <div class="field-grid">
-                  <div class="field">
-                    <label>Grupo padrão (opcional)</label>
-                    <input id="db_txt_default_group" placeholder="Ex: 45192" />
-                  </div>
-                  <div class="field">
-                    <label>Data Contemplação padrão (opcional)</label>
-                    <input id="db_txt_default_contemplation_date" placeholder="dd/mm/aaaa" />
-                  </div>
-                  <div class="field">
-                    <label>Loteria Federal padrão (opcional)</label>
-                    <input id="db_txt_default_lottery" placeholder="Ex: 83358" />
-                  </div>
-                  <div class="field full">
-                    <label>Texto da Assembleia</label>
-                    <textarea id="db_assembleias_raw_text" rows="10" placeholder="Cole aqui o texto completo da assembleia..."></textarea>
-                  </div>
-                </div>
-                <div class="form-footer" style="justify-content: flex-start; gap: 15px;">
-                  <button type="button" id="db_mount_assemblies_btn" class="btn" onclick="return __assembleiasMountClick(event)">Montar Registros</button>
-                  <button type="button" id="db_save_assemblies_btn" class="btn btn-execute" onclick="return __assembleiasSaveClick(event)" disabled>Adicionar no Banco</button>
-                </div>
-                <div class="auth-table-wrap" style="margin-top: 12px;">
-                  <table class="auth-table">
-                    <thead>
-                      <tr>
-                        <th>Grupo</th>
-                        <th>Cota-R-D</th>
-                        <th>Data Contemplação</th>
-                        <th>Tipo Contemplação</th>
-                        <th>Data Desclassificação</th>
-                        <th>Nome do Consorciado</th>
-                        <th>% Lance</th>
-                        <th>Nome do Vendedor</th>
-                        <th>Num. Loteria</th>
-                      </tr>
-                    </thead>
-                    <tbody id="dbAssembleiasPreviewBody">
-                      <tr><td colspan="9">Sem dados. Cole o texto e clique em "Montar Registros".</td></tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
             </section>
           </div>
         </section>
@@ -1502,8 +1461,17 @@
               <option value="">Selecione o modelo</option>
             </select>
           </div>
-          <div class="field"><label>Licenciado</label><select id="sol_plano"><option value="N&atilde;o" selected>N&atilde;o</option><option value="Sim">Sim</option></select></div>
-          <div class="field"><label>Grupo</label><input id="sol_grupo" onblur="autoFillSolicitacaoByGroup('sol')" /></div>
+          <div class="field full sol-triplet-row">
+            <div class="sol-triplet-grid">
+              <div class="field"><label>Licenciado</label><select id="sol_plano"><option value="N&atilde;o" selected>N&atilde;o</option><option value="Sim">Sim</option></select></div>
+              <div class="field"><label>Grupo</label><input id="sol_grupo" onblur="autoFillSolicitacaoByGroup('sol')" /></div>
+              <div class="field"><label>Produto</label>
+                <select id="sol_produto">
+                  <option value="">Selecione o produto</option>
+                </select>
+              </div>
+            </div>
+          </div>
           <div class="field full sol-triplet-row">
             <div class="sol-triplet-grid">
               <div class="field"><label>Qtde Parcelas</label><input id="sol_qtde_parcelas" /></div>

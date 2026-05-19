@@ -125,6 +125,8 @@ var methodPolicy = map[string][]string{
 	"/api/db/tables/create":                 {http.MethodPost},
 	"/api/db/tables/clear":                  {http.MethodPost},
 	"/api/db/tables/drop":                   {http.MethodPost},
+	"/api/db/active_groups/recalc-parcelas": {http.MethodPost},
+	"/api/db/active_groups/recalc-lance":    {http.MethodPost},
 	"/api/db/backup":                        {http.MethodGet},
 	"/api/db/restore":                       {http.MethodPost},
 	"/api/db/restore-capabilities":          {http.MethodGet},
@@ -157,10 +159,12 @@ var criticalPermissionPolicy = map[string]string{
 	"/api/db/tables/create":             "db:tables:create",
 	"/api/db/tables/clear":              "db:tables:clear",
 	"/api/db/tables/drop":               "db:tables:drop",
+	"/api/db/active_groups/recalc-parcelas": "config:database",
+	"/api/db/active_groups/recalc-lance":    "config:database",
 	"/api/db/backup":                    "db:backup",
 	"/api/db/restore":                   "db:restore",
 	"/api/db/restore-capabilities":      "config:database",
-	"/api/db/assembleias/import-text":   "config:database",
+	"/api/db/assembleias/import-text":   "config:assemblies_import_text",
 	"/api/security/password-policy":     "config:password_policy",
 	"/api/security/password-policy/force-all": "config:password_policy",
 	"/api/security/password-policy/users": "config:password_policy",
@@ -464,6 +468,7 @@ type solicitacaoPayload struct {
 	CPF                 string `json:"cpf"`
 	Modelo              string `json:"model_name"`
 	Plano               string `json:"plan"`
+	Produto             string `json:"product_name"`
 	QtdeParcelas        string `json:"installments"`
 	PercLance           string `json:"bid_percent"`
 	ComRestricao        string `json:"with_restriction"`
@@ -804,6 +809,8 @@ func main() {
 	mux.HandleFunc("/api/db/tables/create", app.handleDBTablesCreate)
 	mux.HandleFunc("/api/db/tables/clear", app.handleDBTablesClear)
 	mux.HandleFunc("/api/db/tables/drop", app.handleDBTablesDrop)
+	mux.HandleFunc("/api/db/active_groups/recalc-parcelas", app.handleDBActiveGroupsRecalcParcelas)
+	mux.HandleFunc("/api/db/active_groups/recalc-lance", app.handleDBActiveGroupsRecalcLance)
 	mux.HandleFunc("/api/db/backup", app.handleDBBackup)
 	mux.HandleFunc("/api/db/restore", app.handleDBRestore)
 	mux.HandleFunc("/api/db/restore-capabilities", app.handleDBRestoreCapabilities)
@@ -2230,6 +2237,7 @@ func solicitacaoToPayload(r *db.SolicitacaoRecord) solicitacaoPayload {
 		CPF:               r.CPF,
 		Modelo:            r.Modelo,
 		Plano:             r.Plano,
+		Produto:           r.Produto,
 		ComRestricao:      r.ComRestricao,
 		Notes:             r.Notes,
 		CotaRD:            r.CotaRD,
@@ -2961,6 +2969,7 @@ func (a *app) handleSolicitacaoSave(w http.ResponseWriter, r *http.Request) {
 		CPF:           onlyDigitsLocal(p.CPF),
 		Modelo:        strings.TrimSpace(p.Modelo),
 		Plano:         strings.TrimSpace(p.Plano),
+		Produto:       strings.TrimSpace(p.Produto),
 		QtdeParcelas:  qtdeParcelas,
 		PercLance:     percLance,
 		ComRestricao:  strings.TrimSpace(p.ComRestricao),
@@ -4534,9 +4543,76 @@ func (a *app) parcelasCalculadasPorGrupos(ctx context.Context, store *db.Store, 
 	now := time.Now().In(utcMinus3Loc)
 	for group_code, rec := range groupRecords {
 		r := rec
-		result[group_code] = calculateParcelasFromGrupoAtivo(&r, holidays, now)
+		if r.ParcelasCalc > 0 {
+			result[group_code] = r.ParcelasCalc
+		} else {
+			result[group_code] = calculateParcelasFromGrupoAtivo(&r, holidays, now)
+		}
 	}
 	return result, nil
+}
+
+func (a *app) recalculateAllActiveGroupsParcelasCalc(ctx context.Context, store *db.Store) (int64, error) {
+	holidays, err := store.ListActiveNationalHolidayDates(ctx)
+	if err != nil {
+		return 0, err
+	}
+	now := time.Now().In(utcMinus3Loc)
+	const pageSize = 500
+	offset := 0
+	var updated int64
+	for {
+		items, total, err := store.SearchGruposAtivos(ctx, "", "", "", pageSize, offset)
+		if err != nil {
+			return updated, err
+		}
+		if len(items) == 0 {
+			break
+		}
+		for i := range items {
+			rec := items[i]
+			calc := calculateParcelasFromGrupoAtivo(&rec, holidays, now)
+			if rec.ParcelasCalc == calc {
+				continue
+			}
+			if err := store.UpdateGrupoAtivoParcelasCalc(ctx, rec.ID, calc); err != nil {
+				return updated, err
+			}
+			updated++
+		}
+		offset += len(items)
+		if int64(offset) >= total {
+			break
+		}
+	}
+	return updated, nil
+}
+
+func (a *app) recalculateAllActiveGroupsBidPercentCalc(ctx context.Context, store *db.Store) (int64, error) {
+	const pageSize = 500
+	offset := 0
+	var updated int64
+	for {
+		items, total, err := store.SearchGruposAtivos(ctx, "", "", "", pageSize, offset)
+		if err != nil {
+			return updated, err
+		}
+		if len(items) == 0 {
+			break
+		}
+		for i := range items {
+			rec := items[i]
+			if err := store.UpdateGrupoAtivoBidPercentCalc(ctx, rec.ID, rec.PercLance); err != nil {
+				return updated, err
+			}
+			updated++
+		}
+		offset += len(items)
+		if int64(offset) >= total {
+			break
+		}
+	}
+	return updated, nil
 }
 
 func (a *app) handleIDsGruposDisponiveisSearch(w http.ResponseWriter, r *http.Request) {
@@ -4799,6 +4875,7 @@ func grupoAtivoToPayload(r *db.GrupoAtivoRecord) grupoAtivoPayload {
 		TipoGrupo:        r.TipoGrupo,
 		Modelos:          r.Modelos,
 		Status:           r.Status,
+		ParcelasCalculadas: r.ParcelasCalc,
 	}
 	if r.DataAssembleiaInaugural.Valid {
 		out.DataAssembleiaInaugural = strings.TrimSpace(r.DataAssembleiaInaugural.String)
@@ -5174,57 +5251,25 @@ func (a *app) handleGruposAtivosSearch(w http.ResponseWriter, r *http.Request) {
 	if limit <= 0 {
 		limit = 100
 	}
-	if limit > 500 {
-		limit = 500
-	}
 	if offset < 0 {
 		offset = 0
 	}
 
-	// Filtro híbrido: "parc" é calculado dinamicamente em memória.
-	// Removemos "parc" da query SQL e aplicamos após calcular ParcelasCalculadas.
-	sqlFilters, parcFilters := splitGAFiltersForSQL(filters)
 	_, store, err := a.openStoreFromCurrentConfig()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
 
-	var records []db.GrupoAtivoRecord
-	var total int64
-	if len(parcFilters) == 0 {
-		records, total, err = store.SearchGruposAtivos(r.Context(), search, column, sqlFilters, limit, offset)
-	} else {
-		// "parc" é calculado dinamicamente; traz base SQL ampla e pagina após calcular.
-		records, _, err = store.SearchGruposAtivos(r.Context(), search, column, sqlFilters, 20000, 0)
-	}
+	records, total, err := store.SearchGruposAtivos(r.Context(), search, column, filters, limit, offset)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	holidays, _ := store.ListActiveNationalHolidayDates(r.Context())
-	now := time.Now().In(utcMinus3Loc)
 	out := make([]grupoAtivoPayload, 0, len(records))
 	for i := range records {
 		item := grupoAtivoToPayload(&records[i])
-		rec := records[i]
-		item.ParcelasCalculadas = calculateParcelasFromGrupoAtivo(&rec, holidays, now)
-		if len(parcFilters) > 0 && !matchesParcFilter(item.ParcelasCalculadas, parcFilters) {
-			continue
-		}
 		out = append(out, item)
-	}
-	if len(parcFilters) > 0 {
-		total = int64(len(out))
-		start := offset
-		if start > len(out) {
-			start = len(out)
-		}
-		end := start + limit
-		if end > len(out) {
-			end = len(out)
-		}
-		out = out[start:end]
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "items": out, "count": len(out), "total": total})
 }
@@ -5273,10 +5318,30 @@ func matchesParcFilter(parcelas int64, accepted []int64) bool {
 	return false
 }
 
+func matchesParcFilterWithTolerance(parcelas int64, accepted []int64, tolerance int64) bool {
+	if len(accepted) == 0 {
+		return true
+	}
+	if tolerance < 0 {
+		tolerance = 0
+	}
+	for _, n := range accepted {
+		diff := parcelas - n
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff <= tolerance {
+			return true
+		}
+	}
+	return false
+}
+
 func (a *app) handleGrupoAtivoGet(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(strings.TrimSpace(r.URL.Query().Get("id")), 10, 64)
-	if err != nil || id <= 0 {
-		writeErr(w, http.StatusBadRequest, fmt.Errorf("id invalido"))
+	id, _ := strconv.ParseInt(strings.TrimSpace(r.URL.Query().Get("id")), 10, 64)
+	groupCode, _ := strconv.ParseInt(strings.TrimSpace(r.URL.Query().Get("group_code")), 10, 64)
+	if id <= 0 && groupCode <= 0 {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("informe id ou group_code valido"))
 		return
 	}
 	_, store, err := a.openStoreFromCurrentConfig()
@@ -5284,7 +5349,12 @@ func (a *app) handleGrupoAtivoGet(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	rec, err := store.GetGrupoAtivoByID(r.Context(), id)
+	var rec *db.GrupoAtivoRecord
+	if groupCode > 0 {
+		rec, err = store.GetGrupoAtivoByGrupo(r.Context(), groupCode)
+	} else {
+		rec, err = store.GetGrupoAtivoByID(r.Context(), id)
+	}
 	if err != nil {
 		if err == sql.ErrNoRows {
 			writeErr(w, http.StatusNotFound, fmt.Errorf("registro nao encontrado"))
@@ -5294,8 +5364,10 @@ func (a *app) handleGrupoAtivoGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	item := grupoAtivoToPayload(rec)
-	holidays, _ := store.ListActiveNationalHolidayDates(r.Context())
-	item.ParcelasCalculadas = calculateParcelasFromGrupoAtivo(rec, holidays, time.Now().In(utcMinus3Loc))
+	if item.ParcelasCalculadas <= 0 {
+		holidays, _ := store.ListActiveNationalHolidayDates(r.Context())
+		item.ParcelasCalculadas = calculateParcelasFromGrupoAtivo(rec, holidays, time.Now().In(utcMinus3Loc))
+	}
 	writeJSON(w, http.StatusOK, item)
 }
 
@@ -5319,12 +5391,15 @@ func (a *app) handleGrupoAtivoParcelas(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	holidays, err := store.ListActiveNationalHolidayDates(r.Context())
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
+	parcelas := rec.ParcelasCalc
+	if parcelas <= 0 {
+		holidays, err := store.ListActiveNationalHolidayDates(r.Context())
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		parcelas = calculateParcelasFromGrupoAtivo(rec, holidays, time.Now().In(utcMinus3Loc))
 	}
-	parcelas := calculateParcelasFromGrupoAtivo(rec, holidays, time.Now().In(utcMinus3Loc))
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":         true,
 		"found":      true,
@@ -5348,6 +5423,13 @@ func (a *app) handleGrupoAtivoSimilares(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if groupCode <= 0 {
+		productName := strings.TrimSpace(r.URL.Query().Get("product_name"))
+		if productName == "" {
+			writeErr(w, http.StatusBadRequest, fmt.Errorf("product_name obrigatorio quando group_code vazio"))
+			return
+		}
+		planKey := normalizePlanKey(productName)
+		planToken := normalizePlanSearchToken(productName)
 		installments, convErr := strconv.ParseInt(strings.TrimSpace(r.URL.Query().Get("installments")), 10, 64)
 		if convErr != nil || installments <= 0 {
 			writeErr(w, http.StatusBadRequest, fmt.Errorf("informe group_code ou installments"))
@@ -5369,60 +5451,44 @@ func (a *app) handleGrupoAtivoSimilares(w http.ResponseWriter, r *http.Request) 
 				tolerance = tol
 			}
 		}
+		// Fluxo sem grupo: parcela deve ser exata (coluna fisica), sem tolerancia.
+		parcelasTolerance := int64(0)
 
-		filters := fmt.Sprintf("parc:%d", installments)
+		filters := fmt.Sprintf("plano:%s;parc:%d", planToken, installments)
 		sqlFilters, parcFilters := splitGAFiltersForSQL(filters)
-		candidateLimit := limit * 40
+		candidateLimit := limit * 12
 		if candidateLimit < 3000 {
 			candidateLimit = 3000
 		}
-		if candidateLimit > 10000 {
-			candidateLimit = 10000
+		if candidateLimit > 20000 {
+			candidateLimit = 20000
 		}
-		loadCandidates := func() ([]db.GrupoAtivoRecord, error) {
-			const pageSize = 500
-			capHint := candidateLimit
-			if capHint > 2000 {
-				capHint = 2000
-			}
-			all := make([]db.GrupoAtivoRecord, 0, capHint)
-			offset := 0
-			for len(all) < candidateLimit {
-				page, _, qErr := store.SearchGruposAtivos(r.Context(), "", "", sqlFilters, pageSize, offset)
-				if qErr != nil {
-					return nil, qErr
-				}
-				if len(page) == 0 {
-					break
-				}
-				all = append(all, page...)
-				if len(page) < pageSize {
-					break
-				}
-				offset += pageSize
-			}
-			if len(all) > candidateLimit {
-				all = all[:candidateLimit]
-			}
-			return all, nil
-		}
-		records, qErr := loadCandidates()
+		records, _, qErr := store.SearchGruposAtivos(r.Context(), "", "", sqlFilters, candidateLimit, 0)
 		if qErr != nil {
 			writeErr(w, http.StatusInternalServerError, qErr)
 			return
 		}
-		holidays, _ := store.ListActiveNationalHolidayDates(r.Context())
-		now := time.Now().In(utcMinus3Loc)
 		out := make([]grupoSimilarPayload, 0, len(records))
+		diagTotal := len(records)
+		diagPlan := 0
+		diagParc := 0
+		diagLanceValid := 0
+		diagTol := 0
 		for i := range records {
 			rec := records[i]
-			parcelas := calculateParcelasFromGrupoAtivo(&rec, holidays, now)
+			if normalizePlanKey(rec.Plano) != planKey {
+				continue
+			}
+			diagPlan++
+			parcelas := rec.ParcelasCalc
 			if len(parcFilters) > 0 && !matchesParcFilter(parcelas, parcFilters) {
 				continue
 			}
+			diagParc++
 			if !rec.PercLance.Valid {
 				continue
 			}
+			diagLanceValid++
 			diff := rec.PercLance.Float64 - bid
 			if diff < 0 {
 				diff = -diff
@@ -5430,6 +5496,7 @@ func (a *app) handleGrupoAtivoSimilares(w http.ResponseWriter, r *http.Request) 
 			if diff > tolerance {
 				continue
 			}
+			diagTol++
 			item := grupoSimilarPayload{
 				Grupo:      rec.Grupo,
 				Tipo:       rec.TipoGrupo,
@@ -5452,7 +5519,10 @@ func (a *app) handleGrupoAtivoSimilares(w http.ResponseWriter, r *http.Request) 
 			candidates := make([]grupoSimilarPayload, 0, len(records))
 			for i := range records {
 				rec := records[i]
-				parcelas := calculateParcelasFromGrupoAtivo(&rec, holidays, now)
+				if normalizePlanKey(rec.Plano) != planKey {
+					continue
+				}
+				parcelas := rec.ParcelasCalc
 				if len(parcFilters) > 0 && !matchesParcFilter(parcelas, parcFilters) {
 					continue
 				}
@@ -5493,15 +5563,26 @@ func (a *app) handleGrupoAtivoSimilares(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ok":    true,
 			"found": true,
+			"diagnostics": map[string]any{
+				"candidate_limit":     candidateLimit,
+				"sql_candidates":      diagTotal,
+				"after_plan":          diagPlan,
+				"after_parcelas":      diagParc,
+				"after_lance_present": diagLanceValid,
+				"after_tolerance":     diagTol,
+				"returned":            len(out),
+				"fallback_only_parc":  fallbackOnlyInstallments,
+			},
 			"base": map[string]any{
 				"group_code":  0,
 				"group_type":  "",
-				"plan":        "",
+				"plan":        productName,
 				"due_day":     0,
 				"term_months": 0,
 				"parcelas":    installments,
 				"bid_percent": bid,
 				"tolerance":   tolerance,
+				"parcelas_tolerance": parcelasTolerance,
 				"filters":     filters,
 				"fallback_only_installments": fallbackOnlyInstallments,
 			},
@@ -5526,9 +5607,7 @@ func (a *app) handleGrupoAtivoSimilares(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	holidays, _ := store.ListActiveNationalHolidayDates(r.Context())
-	now := time.Now().In(utcMinus3Loc)
-	baseParcelas := calculateParcelasFromGrupoAtivo(baseAG, holidays, now)
+	baseParcelas := baseAG.ParcelasCalc
 
 	planBase := strings.TrimSpace(baseAG.Plano)
 	filtersWithPlan := fmt.Sprintf(
@@ -5556,7 +5635,7 @@ func (a *app) handleGrupoAtivoSimilares(w http.ResponseWriter, r *http.Request) 
 		out := make([]grupoSimilarPayload, 0, len(records))
 		for i := range records {
 			rec := records[i]
-			parcelas := calculateParcelasFromGrupoAtivo(&rec, holidays, now)
+			parcelas := rec.ParcelasCalc
 			if len(parcFilters) > 0 && !matchesParcFilter(parcelas, parcFilters) {
 				continue
 			}
@@ -5623,6 +5702,29 @@ func (a *app) handleGrupoAtivoSimilares(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+func normalizePlanKey(v string) string {
+	s := strings.ToLower(strings.TrimSpace(v))
+	if s == "" {
+		return ""
+	}
+	r := strings.NewReplacer("#", "", "+", "", "-", " ", "_", " ", "\t", " ")
+	s = r.Replace(s)
+	s = strings.Join(strings.Fields(s), " ")
+	s = strings.ReplaceAll(s, " ", "")
+	return s
+}
+
+func normalizePlanSearchToken(v string) string {
+	s := strings.ToLower(strings.TrimSpace(v))
+	if s == "" {
+		return ""
+	}
+	r := strings.NewReplacer("#", "", "+", "", "_", " ", "\t", " ")
+	s = r.Replace(s)
+	s = strings.Join(strings.Fields(s), " ")
+	return s
+}
+
 func (a *app) handleGrupoAtivoSave(w http.ResponseWriter, r *http.Request) {
 	var p grupoAtivoPayload
 	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
@@ -5635,11 +5737,24 @@ func (a *app) handleGrupoAtivoSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	recForCalc := db.GrupoAtivoRecord{
+		Grupo:            p.Grupo,
+		Vencimento:       p.Vencimento,
+		QtdParticipantes: p.QtdParticipantes,
+		DataAssembleiaInaugural: sql.NullString{
+			String: strings.TrimSpace(p.DataAssembleiaInaugural),
+			Valid:  strings.TrimSpace(p.DataAssembleiaInaugural) != "",
+		},
+	}
+	holidays, _ := store.ListActiveNationalHolidayDates(r.Context())
+	parcelasCalc := calculateParcelasFromGrupoAtivo(&recForCalc, holidays, time.Now().In(utcMinus3Loc))
+
 	id, err := store.SaveGrupoAtivo(r.Context(), db.GrupoAtivoRecord{
 		ID:                      p.ID,
 		Grupo:                   p.Grupo,
 		Vencimento:              p.Vencimento,
 		QtdParticipantes:        p.QtdParticipantes,
+		ParcelasCalc:            parcelasCalc,
 		DataAssembleiaInaugural: sql.NullString{String: strings.TrimSpace(p.DataAssembleiaInaugural), Valid: strings.TrimSpace(p.DataAssembleiaInaugural) != ""},
 		Plano:                   strings.TrimSpace(p.Plano),
 		Prazo:                   p.Prazo,
@@ -5731,6 +5846,70 @@ func (a *app) handleDBTablesCreate(w http.ResponseWriter, r *http.Request) {
 		"ok":      true,
 		"message": fmt.Sprintf("Estrutura validada: %d tabela(s) sincronizada(s)", len(db.LegacyTableNames())),
 		"db_path": strings.TrimSpace(cfg.DatabaseURL),
+	})
+}
+
+func (a *app) handleDBActiveGroupsRecalcParcelas(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, "config:database") {
+		return
+	}
+	_, store, err := a.openStoreFromCurrentConfig()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	if err := store.EnsureLegacySchema(r.Context()); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"ok":      false,
+			"message": fmt.Sprintf("Falha ao validar estrutura antes de recalcular parcelas: %v", err),
+		})
+		return
+	}
+	count, err := a.recalculateAllActiveGroupsParcelasCalc(r.Context(), store)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"ok":      false,
+			"message": fmt.Sprintf("Falha ao recalcular parcelas: %v", err),
+		})
+		return
+	}
+	a.logAudit(r, "DB_RECALC_PARCELAS", "database", "", "", fmt.Sprintf("updated=%d", count))
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":      true,
+		"count":   count,
+		"message": fmt.Sprintf("Parcelas recalculadas: %d", count),
+	})
+}
+
+func (a *app) handleDBActiveGroupsRecalcLance(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, "config:database") {
+		return
+	}
+	_, store, err := a.openStoreFromCurrentConfig()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	if err := store.EnsureLegacySchema(r.Context()); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"ok":      false,
+			"message": fmt.Sprintf("Falha ao validar estrutura antes de recalcular perc. lance: %v", err),
+		})
+		return
+	}
+	count, err := a.recalculateAllActiveGroupsBidPercentCalc(r.Context(), store)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"ok":      false,
+			"message": fmt.Sprintf("Falha ao recalcular perc. lance: %v", err),
+		})
+		return
+	}
+	a.logAudit(r, "DB_RECALC_LANCE", "database", "", "", fmt.Sprintf("updated=%d", count))
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":      true,
+		"count":   count,
+		"message": fmt.Sprintf("Perc. Lance recalculado: %d", count),
 	})
 }
 
@@ -6521,7 +6700,7 @@ func normalizeImportDate(raw string) string {
 }
 
 func (a *app) handleDBAssembleiasImportText(w http.ResponseWriter, r *http.Request) {
-	if !a.requirePermission(w, r, "config:database") {
+	if !a.requirePermission(w, r, "config:assemblies_import_text") {
 		return
 	}
 

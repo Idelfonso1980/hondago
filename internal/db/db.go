@@ -1,4 +1,4 @@
-package db
+﻿package db
 
 import (
 	"bufio"
@@ -231,6 +231,7 @@ type GrupoAtivoRecord struct {
 	Vencimento              int64
 	QtdParticipantes        int64
 	PercLance               sql.NullFloat64
+	ParcelasCalc            int64
 	DataAssembleiaInaugural sql.NullString
 	Plano                   string
 	Prazo                   int64
@@ -265,6 +266,7 @@ type SolicitacaoRecord struct {
 	CPF                 string
 	Modelo              string
 	Plano               string
+	Produto             string
 	QtdeParcelas        sql.NullInt64
 	PercLance           sql.NullFloat64
 	ComRestricao        string
@@ -476,10 +478,10 @@ func (s *Store) EnsureDefaultAppUser(ctx context.Context) error {
 	}
 	bootstrapPass := strings.TrimSpace(os.Getenv("HONDAGO_BOOTSTRAP_ADMIN_PASSWORD"))
 	if bootstrapPass == "" {
-		return fmt.Errorf("nenhum usuÃ¡rio de aplicaÃ§Ã£o encontrado; defina HONDAGO_BOOTSTRAP_ADMIN_PASSWORD para bootstrap inicial")
+		return fmt.Errorf("nenhum usuÃƒÂ¡rio de aplicaÃƒÂ§ÃƒÂ£o encontrado; defina HONDAGO_BOOTSTRAP_ADMIN_PASSWORD para bootstrap inicial")
 	}
 	if err := validateStrongPassword(bootstrapPass); err != nil {
-		return fmt.Errorf("senha bootstrap invÃ¡lida: %w", err)
+		return fmt.Errorf("senha bootstrap invÃƒÂ¡lida: %w", err)
 	}
 
 	hash, err := HashPassword(bootstrapPass)
@@ -499,7 +501,7 @@ func (s *Store) EnsureDefaultAppUser(ctx context.Context) error {
 
 func validateStrongPassword(raw string) error {
 	if len(raw) < 12 {
-		return fmt.Errorf("mÃ­nimo de 12 caracteres")
+		return fmt.Errorf("mÃƒÂ­nimo de 12 caracteres")
 	}
 	var hasUpper, hasLower, hasDigit, hasSymbol bool
 	for _, r := range raw {
@@ -515,7 +517,7 @@ func validateStrongPassword(raw string) error {
 		}
 	}
 	if !hasUpper || !hasLower || !hasDigit || !hasSymbol {
-		return fmt.Errorf("use maiÃºscula, minÃºscula, nÃºmero e sÃ­mbolo")
+		return fmt.Errorf("use maiÃƒÂºscula, minÃƒÂºscula, nÃƒÂºmero e sÃƒÂ­mbolo")
 	}
 	return nil
 }
@@ -627,7 +629,7 @@ func (s *Store) GetAppUserByCPF(ctx context.Context, cpf string) (*AppUserRecord
 	if c == "" {
 		return nil, fmt.Errorf("cpf vazio")
 	}
-	// Busca por CPF exato ou limpando formataÃ§Ã£o comum
+	// Busca por CPF exato ou limpando formataÃƒÂ§ÃƒÂ£o comum
 	row := s.DB.QueryRowContext(
 		ctx,
 		s.bind(`SELECT id, username, password_hash, full_name, manager, supervisor, cpf, branch, email, phone, mfa_enabled, mfa_secret, role, is_active, failed_login_attempts, locked_until, last_login_at, must_change_password, password_changed_at, temp_password_issued_at, updated_at, created_at
@@ -1103,7 +1105,7 @@ func (s *Store) EnsureAuthControlColumns(ctx context.Context) error {
 		"SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='api_accounts' LIMIT 1",
 	).Scan(&authExists); err != nil {
 		if err == sql.ErrNoRows {
-			return fmt.Errorf("tabela 'api_accounts' nÃƒÆ’Ã‚Â£o encontrada no banco selecionado")
+			return fmt.Errorf("tabela 'api_accounts' nÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o encontrada no banco selecionado")
 		}
 		return fmt.Errorf("check api_accounts table: %w", err)
 	}
@@ -1565,6 +1567,7 @@ CAST(COALESCE(seller_name, '') AS TEXT) AS seller_name,
 CAST(COALESCE(cpf, '') AS TEXT) AS cpf,
 CAST(COALESCE(model_name, '') AS TEXT) AS model_name,
 CAST(COALESCE(licensed, '') AS TEXT) AS plan,
+CAST(COALESCE(product_name, '') AS TEXT) AS product_name,
 CASE WHEN TRIM(COALESCE(CAST(installments AS TEXT), '')) = '' THEN NULL ELSE CAST(REPLACE(CAST(installments AS TEXT), ',', '.') AS INTEGER) END AS installments,
 CASE WHEN TRIM(COALESCE(CAST(bid_percent AS TEXT), '')) = '' THEN NULL ELSE CAST(REPLACE(CAST(bid_percent AS TEXT), ',', '.') AS REAL) END AS bid_percent,
 CAST(COALESCE(with_restriction, '') AS TEXT) AS with_restriction,
@@ -1624,6 +1627,7 @@ CAST(COALESCE(contemplation_bid, '') AS TEXT) AS contemplation_bid`
    OR CAST(COALESCE(seller_name, '') AS TEXT) `+textLike+` ?
    OR CAST(COALESCE(cpf, '') AS TEXT) `+textLike+` ?
    OR CAST(COALESCE(model_name, '') AS TEXT) `+textLike+` ?
+   OR CAST(COALESCE(product_name, '') AS TEXT) `+textLike+` ?
    OR CAST(COALESCE(licensed, '') AS TEXT) `+textLike+` ?
    OR CAST(installments AS TEXT) LIKE ?
    OR CAST(bid_percent AS TEXT) LIKE ?
@@ -1634,7 +1638,7 @@ CAST(COALESCE(contemplation_bid, '') AS TEXT) AS contemplation_bid`
    OR CAST(requested_quota_id AS TEXT) LIKE ?
    OR CAST(COALESCE(quota_rd, '') AS TEXT) `+textLike+` ?
    OR CAST(COALESCE(status, '') AS TEXT) `+textLike+` ?)`)
-			args = append(args, q, like, like, like, like, like, like, like, like, like, like, like, like, like, like)
+			args = append(args, q, like, like, like, like, like, like, like, like, like, like, like, like, like, like, like)
 		} else {
 			numericCols := map[string]string{
 				"id":                 "id",
@@ -1649,6 +1653,7 @@ CAST(COALESCE(contemplation_bid, '') AS TEXT) AS contemplation_bid`
 				"seller_name":      "seller_name",
 				"cpf":              "cpf",
 				"model_name":       "model_name",
+				"product_name":     "product_name",
 				"plan":             "licensed",
 				"with_restriction": "with_restriction",
 				"notes":            "notes",
@@ -1688,7 +1693,7 @@ CAST(COALESCE(contemplation_bid, '') AS TEXT) AS contemplation_bid`
 	for rows.Next() {
 		var r SolicitacaoRecord
 		if err := rows.Scan(
-			&r.ID, &r.DataHoraSolicitacao, &r.DataSolicitacao, &r.HoraSolicitacao, &r.Filial, &r.Vendedor, &r.CPF, &r.Modelo, &r.Plano, &r.QtdeParcelas,
+			&r.ID, &r.DataHoraSolicitacao, &r.DataSolicitacao, &r.HoraSolicitacao, &r.Filial, &r.Vendedor, &r.CPF, &r.Modelo, &r.Plano, &r.Produto, &r.QtdeParcelas,
 			&r.PercLance, &r.ComRestricao, &r.Grupo, &r.Notes, &r.IDCota, &r.GrupoAtendido, &r.QtdeParcelasAtendidas, &r.PercLanceAtendido, &r.CotaRD,
 			&r.DataHoraAtendimento, &r.DataAtendimento, &r.HoraAtendimento, &r.Situacao, &r.LanceContemplacao,
 		); err != nil {
@@ -1878,6 +1883,7 @@ CAST(COALESCE(seller_name, '') AS TEXT) AS seller_name,
 CAST(COALESCE(cpf, '') AS TEXT) AS cpf,
 CAST(COALESCE(model_name, '') AS TEXT) AS model_name,
 CAST(COALESCE(licensed, '') AS TEXT) AS plan,
+CAST(COALESCE(product_name, '') AS TEXT) AS product_name,
 CASE WHEN TRIM(COALESCE(CAST(installments AS TEXT), '')) = '' THEN NULL ELSE CAST(REPLACE(CAST(installments AS TEXT), ',', '.') AS INTEGER) END AS installments,
 CASE WHEN TRIM(COALESCE(CAST(bid_percent AS TEXT), '')) = '' THEN NULL ELSE CAST(REPLACE(CAST(bid_percent AS TEXT), ',', '.') AS REAL) END AS bid_percent,
 CAST(COALESCE(with_restriction, '') AS TEXT) AS with_restriction,
@@ -1901,7 +1907,7 @@ LIMIT 1`),
 	)
 	var r SolicitacaoRecord
 	if err := row.Scan(
-		&r.ID, &r.DataHoraSolicitacao, &r.DataSolicitacao, &r.HoraSolicitacao, &r.Filial, &r.Vendedor, &r.CPF, &r.Modelo, &r.Plano, &r.QtdeParcelas,
+		&r.ID, &r.DataHoraSolicitacao, &r.DataSolicitacao, &r.HoraSolicitacao, &r.Filial, &r.Vendedor, &r.CPF, &r.Modelo, &r.Plano, &r.Produto, &r.QtdeParcelas,
 		&r.PercLance, &r.ComRestricao, &r.Grupo, &r.Notes, &r.IDCota, &r.GrupoAtendido, &r.QtdeParcelasAtendidas, &r.PercLanceAtendido, &r.CotaRD,
 		&r.DataHoraAtendimento, &r.DataAtendimento, &r.HoraAtendimento, &r.Situacao, &r.LanceContemplacao,
 	); err != nil {
@@ -2050,6 +2056,7 @@ CAST(COALESCE(seller_name, '') AS TEXT) AS seller_name,
 CAST(COALESCE(cpf, '') AS TEXT) AS cpf,
 CAST(COALESCE(model_name, '') AS TEXT) AS model_name,
 CAST(COALESCE(licensed, '') AS TEXT) AS plan,
+CAST(COALESCE(product_name, '') AS TEXT) AS product_name,
 CASE WHEN TRIM(COALESCE(CAST(installments AS TEXT), '')) = '' THEN NULL ELSE CAST(REPLACE(CAST(installments AS TEXT), ',', '.') AS INTEGER) END AS installments,
 CASE WHEN TRIM(COALESCE(CAST(bid_percent AS TEXT), '')) = '' THEN NULL ELSE CAST(REPLACE(CAST(bid_percent AS TEXT), ',', '.') AS REAL) END AS bid_percent,
 CAST(COALESCE(with_restriction, '') AS TEXT) AS with_restriction,
@@ -2071,7 +2078,7 @@ WHERE id=?`),
 	)
 	var r SolicitacaoRecord
 	if err := row.Scan(
-		&r.ID, &r.DataHoraSolicitacao, &r.DataSolicitacao, &r.HoraSolicitacao, &r.Filial, &r.Vendedor, &r.CPF, &r.Modelo, &r.Plano, &r.QtdeParcelas,
+		&r.ID, &r.DataHoraSolicitacao, &r.DataSolicitacao, &r.HoraSolicitacao, &r.Filial, &r.Vendedor, &r.CPF, &r.Modelo, &r.Plano, &r.Produto, &r.QtdeParcelas,
 		&r.PercLance, &r.ComRestricao, &r.Grupo, &r.Notes, &r.IDCota, &r.GrupoAtendido, &r.QtdeParcelasAtendidas, &r.PercLanceAtendido, &r.CotaRD,
 		&r.DataHoraAtendimento, &r.DataAtendimento, &r.HoraAtendimento, &r.Situacao, &r.LanceContemplacao,
 	); err != nil {
@@ -2121,6 +2128,7 @@ SET requested_at=?,
     cpf=?,
     model_name=?,
     licensed=?,
+    product_name=?,
     installments=?,
     bid_percent=?,
     with_restriction=?,
@@ -2148,6 +2156,7 @@ WHERE id=?`),
 			strings.TrimSpace(r.CPF),
 			strings.TrimSpace(r.Modelo),
 			strings.TrimSpace(r.Plano),
+			strings.TrimSpace(r.Produto),
 			nullIntArg(r.QtdeParcelas),
 			nullFloatArg(r.PercLance),
 			strings.TrimSpace(r.ComRestricao),
@@ -2180,6 +2189,7 @@ SET requested_at=?,
     cpf=?,
     model_name=?,
     licensed=?,
+    product_name=?,
     installments=?,
     bid_percent=?,
     with_restriction=?,
@@ -2205,7 +2215,8 @@ WHERE id=?`),
 				strings.TrimSpace(r.CPF),
 				strings.TrimSpace(r.Modelo),
 				strings.TrimSpace(r.Plano),
-				nullIntArg(r.QtdeParcelas),
+			strings.TrimSpace(r.Produto),
+			nullIntArg(r.QtdeParcelas),
 				nullFloatArg(r.PercLance),
 				strings.TrimSpace(r.ComRestricao),
 				nullIntArg(r.Grupo),
@@ -2239,7 +2250,8 @@ WHERE id=?`),
 		strings.TrimSpace(r.CPF),
 		strings.TrimSpace(r.Modelo),
 		strings.TrimSpace(r.Plano),
-		nullIntArg(r.QtdeParcelas),
+			strings.TrimSpace(r.Produto),
+			nullIntArg(r.QtdeParcelas),
 		nullFloatArg(r.PercLance),
 		strings.TrimSpace(r.ComRestricao),
 		nullIntArg(r.Grupo),
@@ -2259,8 +2271,8 @@ WHERE id=?`),
 	err = s.DB.QueryRowContext(
 		ctx,
 		s.bind(`INSERT INTO requests
- (requested_at, requester_user_id, vendor_identity_id, api_account_id, requested_date, requested_time, branch, seller_name, cpf, model_name, licensed, installments, bid_percent, with_restriction, group_code, notes, requested_quota_id, served_group, installments_served, bid_percent_served, quota_rd, served_at, served_date, served_time, status, contemplation_bid)
- VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`),
+ (requested_at, requester_user_id, vendor_identity_id, api_account_id, requested_date, requested_time, branch, seller_name, cpf, model_name, licensed, product_name, installments, bid_percent, with_restriction, group_code, notes, requested_quota_id, served_group, installments_served, bid_percent_served, quota_rd, served_at, served_date, served_time, status, contemplation_bid)
+ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`),
 		insertArgs...,
 	).Scan(&id)
 	if err != nil && requestServedColsMissingErr(err) {
@@ -2276,6 +2288,7 @@ WHERE id=?`),
 			strings.TrimSpace(r.CPF),
 			strings.TrimSpace(r.Modelo),
 			strings.TrimSpace(r.Plano),
+			strings.TrimSpace(r.Produto),
 			nullIntArg(r.QtdeParcelas),
 			nullFloatArg(r.PercLance),
 			strings.TrimSpace(r.ComRestricao),
@@ -2293,8 +2306,8 @@ WHERE id=?`),
 		err = s.DB.QueryRowContext(
 			ctx,
 			s.bind(`INSERT INTO requests
- (requested_at, requester_user_id, vendor_identity_id, api_account_id, requested_date, requested_time, branch, seller_name, cpf, model_name, licensed, installments, bid_percent, with_restriction, group_code, notes, requested_quota_id, served_group, quota_rd, served_at, served_date, served_time, status, contemplation_bid)
- VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`),
+ (requested_at, requester_user_id, vendor_identity_id, api_account_id, requested_date, requested_time, branch, seller_name, cpf, model_name, licensed, product_name, installments, bid_percent, with_restriction, group_code, notes, requested_quota_id, served_group, quota_rd, served_at, served_date, served_time, status, contemplation_bid)
+ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`),
 			legacyInsertArgs...,
 		).Scan(&id)
 	}
@@ -2583,10 +2596,10 @@ WHERE booked = 0 AND failed = 0
 		args = append(args, d)
 	}
 	if idCota == "" {
-		// Sem ID Cota informado: prioriza o maior group_api_id disponÃƒÆ’Ã‚Â­vel (mais recente).
+		// Sem ID Cota informado: prioriza o maior group_api_id disponÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­vel (mais recente).
 		base += " ORDER BY CAST(COALESCE(NULLIF(CAST(group_api_id AS TEXT), ''), '0') AS INTEGER) DESC, id DESC LIMIT 1"
 	} else {
-		// Com ID Cota informado: mantÃƒÆ’Ã‚Â©m a seleÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o estÃƒÆ’Ã‚Â¡vel como jÃƒÆ’Ã‚Â¡ estava.
+		// Com ID Cota informado: mantÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©m a seleÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡vel como jÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡ estava.
 		base += " ORDER BY id ASC LIMIT 1"
 	}
 
@@ -2993,7 +3006,7 @@ WHERE CAST(id AS TEXT)=?
 				whereSQL = "WHERE CAST(COALESCE(" + rawCol + ", '') AS TEXT) " + textLike + " ?"
 				whereArgs = []any{"%" + q + "%"}
 			} else {
-				return nil, 0, fmt.Errorf("coluna de busca invÃƒÆ’Ã‚Â¡lida")
+				return nil, 0, fmt.Errorf("coluna de busca invÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡lida")
 			}
 		}
 	}
@@ -3507,9 +3520,6 @@ func (s *Store) SearchAssembleias(ctx context.Context, query string, limit, offs
 	if limit <= 0 {
 		limit = 100
 	}
-	if limit > 500 {
-		limit = 500
-	}
 	if offset < 0 {
 		offset = 0
 	}
@@ -3615,7 +3625,7 @@ LIMIT ? OFFSET ?`),
 func (s *Store) bidPercentAvgMin6mExpr(groupCol string) string {
 	groupExpr := "CAST(COALESCE(NULLIF(CAST(" + groupCol + " AS TEXT), ''), '0') AS INTEGER)"
 	if s.driver == "pgx" {
-		return `CAST(COALESCE((
+		return `CAST(COALESCE(NULLIF(active_groups.bid_percent_calc, 0), (
 SELECT AVG(month_min) FROM (
   SELECT MIN(CAST(REPLACE(COALESCE(NULLIF(TRIM(CAST(a.bid_percent AS TEXT)), ''), '0'), ',', '.') AS DOUBLE PRECISION)) AS month_min
   FROM assemblies a
@@ -3626,7 +3636,7 @@ SELECT AVG(month_min) FROM (
 ) mm
 ), 0) AS REAL)`
 	}
-	return `CAST(COALESCE((
+	return `CAST(COALESCE(NULLIF(CAST(active_groups.bid_percent_calc AS REAL), 0), (
 SELECT AVG(month_min) FROM (
   SELECT MIN(CAST(REPLACE(COALESCE(NULLIF(TRIM(CAST(a.bid_percent AS TEXT)), ''), '0'), ',', '.') AS REAL)) AS month_min
   FROM assemblies a
@@ -3806,9 +3816,6 @@ func (s *Store) SearchGruposAtivos(ctx context.Context, query, column, filters s
 	if limit <= 0 {
 		limit = 100
 	}
-	if limit > 500 {
-		limit = 500
-	}
 	if offset < 0 {
 		offset = 0
 	}
@@ -3816,11 +3823,15 @@ func (s *Store) SearchGruposAtivos(ctx context.Context, query, column, filters s
 	col := strings.ToLower(strings.TrimSpace(column))
 	filtersRaw := strings.TrimSpace(filters)
 
-	bidExpr := s.bidPercentAvgMin6mExpr("active_groups.group_code")
+	bidExpr := `CASE
+WHEN TRIM(COALESCE(CAST(bid_percent_calc AS TEXT), '')) = '' THEN NULL
+ELSE CAST(REPLACE(CAST(bid_percent_calc AS TEXT), ',', '.') AS REAL)
+END`
 	cols := `CAST(COALESCE(NULLIF(CAST(id AS TEXT), ''), '0') AS INTEGER) AS id,
 CAST(COALESCE(NULLIF(CAST(group_code AS TEXT), ''), '0') AS INTEGER) AS group_code,
 CAST(COALESCE(NULLIF(CAST(due_day AS TEXT), ''), '0') AS INTEGER) AS due_day,
 CAST(COALESCE(NULLIF(CAST(participants_count AS TEXT), ''), '0') AS INTEGER) AS participants_count,
+CAST(COALESCE(NULLIF(CAST(parcelas_calc AS TEXT), ''), '0') AS INTEGER) AS parcelas_calc,
 ` + bidExpr + ` AS bid_percent,
 CAST(COALESCE(CAST(first_assembly_date AS TEXT), '') AS TEXT) AS first_assembly_date,
 CAST(COALESCE(plan, '') AS TEXT) AS plan,
@@ -3907,7 +3918,7 @@ OR CAST(updated_at AS TEXT) LIKE ?
 			"venc":    {dbCol: "due_day", numeric: true},
 			"partic":  {dbCol: "participants_count", numeric: true},
 			"prazo":   {dbCol: "term_months", numeric: true},
-			"parc":    {dbCol: "term_months", numeric: true},
+			"parc":    {dbCol: "parcelas_calc", numeric: true},
 			"lance":   {dbCol: "bid_percent", numeric: true},
 			"data":    {dbCol: "first_assembly_date", numeric: false},
 			"plano":   {dbCol: "plan", numeric: false},
@@ -3952,7 +3963,7 @@ OR CAST(updated_at AS TEXT) LIKE ?
 						if convErr != nil {
 							continue
 						}
-						ors = append(ors, s.bidPercentAvgMin6mExpr("active_groups.group_code")+"=?")
+						ors = append(ors, "CASE WHEN TRIM(COALESCE(CAST(bid_percent_calc AS TEXT), '')) = '' THEN NULL ELSE CAST(REPLACE(CAST(bid_percent_calc AS TEXT), ',', '.') AS REAL) END=?")
 						localArgs = append(localArgs, fv)
 					} else {
 						n, convErr := parseInt64Safe(v)
@@ -4002,6 +4013,7 @@ OR CAST(updated_at AS TEXT) LIKE ?
 			&r.Grupo,
 			&r.Vencimento,
 			&r.QtdParticipantes,
+			&r.ParcelasCalc,
 			&r.PercLance,
 			&dataAssembleia,
 			&r.Plano,
@@ -4061,7 +4073,11 @@ SELECT CAST(COALESCE(NULLIF(CAST(id AS TEXT), ''), '0') AS INTEGER),
        CAST(COALESCE(NULLIF(CAST(group_code AS TEXT), ''), '0') AS INTEGER),
        CAST(COALESCE(NULLIF(CAST(due_day AS TEXT), ''), '0') AS INTEGER),
        CAST(COALESCE(NULLIF(CAST(participants_count AS TEXT), ''), '0') AS INTEGER),
-       `+s.bidPercentAvgMin6mExpr("active_groups.group_code")+`,
+       CAST(COALESCE(NULLIF(CAST(parcelas_calc AS TEXT), ''), '0') AS INTEGER),
+       CASE
+       WHEN TRIM(COALESCE(CAST(bid_percent_calc AS TEXT), '')) = '' THEN NULL
+       ELSE CAST(REPLACE(CAST(bid_percent_calc AS TEXT), ',', '.') AS REAL)
+       END,
        CAST(COALESCE(CAST(first_assembly_date AS TEXT), '') AS TEXT),
        CAST(COALESCE(plan, '') AS TEXT),
        CAST(COALESCE(NULLIF(CAST(term_months AS TEXT), ''), '0') AS INTEGER),
@@ -4079,6 +4095,7 @@ SELECT CAST(COALESCE(NULLIF(CAST(id AS TEXT), ''), '0') AS INTEGER),
 		&r.Grupo,
 		&r.Vencimento,
 		&r.QtdParticipantes,
+		&r.ParcelasCalc,
 		&r.PercLance,
 		&dataAssembleia,
 		&r.Plano,
@@ -4118,6 +4135,7 @@ UPDATE active_groups
 SET group_code=?,
     due_day=?,
     participants_count=?,
+    parcelas_calc=?,
     first_assembly_date=?,
     plan=?,
     term_months=?,
@@ -4129,6 +4147,7 @@ WHERE id=?`),
 			r.Grupo,
 			r.Vencimento,
 			r.QtdParticipantes,
+			r.ParcelasCalc,
 			nullStringOrNil(r.DataAssembleiaInaugural),
 			strings.TrimSpace(r.Plano),
 			r.Prazo,
@@ -4152,11 +4171,12 @@ WHERE id=?`),
 		var id int64
 		err := s.DB.QueryRowContext(ctx, s.bind(`
 INSERT INTO active_groups
-  (group_code, due_day, participants_count, first_assembly_date, plan, term_months, group_type, models, status, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`),
+  (group_code, due_day, participants_count, parcelas_calc, first_assembly_date, plan, term_months, group_type, models, status, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`),
 			r.Grupo,
 			r.Vencimento,
 			r.QtdParticipantes,
+			r.ParcelasCalc,
 			nullStringOrNil(r.DataAssembleiaInaugural),
 			strings.TrimSpace(r.Plano),
 			r.Prazo,
@@ -4173,11 +4193,12 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`),
 	}
 	res, err := s.DB.ExecContext(ctx, s.bind(`
 INSERT INTO active_groups
-  (group_code, due_day, participants_count, first_assembly_date, plan, term_months, group_type, models, status, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+  (group_code, due_day, participants_count, parcelas_calc, first_assembly_date, plan, term_months, group_type, models, status, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 		r.Grupo,
 		r.Vencimento,
 		r.QtdParticipantes,
+		r.ParcelasCalc,
 		nullStringOrNil(r.DataAssembleiaInaugural),
 		strings.TrimSpace(r.Plano),
 		r.Prazo,
@@ -4191,6 +4212,40 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 		return 0, err
 	}
 	return res.LastInsertId()
+}
+
+func (s *Store) UpdateGrupoAtivoParcelasCalc(ctx context.Context, id, parcelasCalc int64) error {
+	if id <= 0 {
+		return fmt.Errorf("id invalido")
+	}
+	_, err := s.DB.ExecContext(ctx, s.bind(`
+UPDATE active_groups
+SET parcelas_calc=?,
+    updated_at=?
+WHERE id=?`),
+		parcelasCalc,
+		formatDateTimeUTCMinus3(nowUTCMinus3()),
+		id,
+	)
+	return err
+}
+
+func (s *Store) UpdateGrupoAtivoBidPercentCalc(ctx context.Context, id int64, bidPercent sql.NullFloat64) error {
+	if id <= 0 {
+		return fmt.Errorf("id invalido")
+	}
+	var val any
+	if bidPercent.Valid {
+		val = bidPercent.Float64
+	} else {
+		val = nil
+	}
+	_, err := s.DB.ExecContext(ctx, s.bind(`
+UPDATE active_groups
+SET bid_percent_calc=?,
+    updated_at=?
+WHERE id=?`), val, formatDateTimeUTCMinus3(nowUTCMinus3()), id)
+	return err
 }
 
 func (s *Store) DeleteGrupoAtivo(ctx context.Context, id int64) error {
@@ -4234,7 +4289,11 @@ SELECT CAST(COALESCE(NULLIF(CAST(id AS TEXT), ''), '0') AS INTEGER),
        CAST(COALESCE(NULLIF(CAST(group_code AS TEXT), ''), '0') AS INTEGER),
        CAST(COALESCE(NULLIF(CAST(due_day AS TEXT), ''), '0') AS INTEGER),
        CAST(COALESCE(NULLIF(CAST(participants_count AS TEXT), ''), '0') AS INTEGER),
-       `+s.bidPercentAvgMin6mExpr("active_groups.group_code")+`,
+       CAST(COALESCE(NULLIF(CAST(parcelas_calc AS TEXT), ''), '0') AS INTEGER),
+       CASE
+       WHEN TRIM(COALESCE(CAST(bid_percent_calc AS TEXT), '')) = '' THEN NULL
+       ELSE CAST(REPLACE(CAST(bid_percent_calc AS TEXT), ',', '.') AS REAL)
+       END,
        CAST(COALESCE(CAST(first_assembly_date AS TEXT), '') AS TEXT),
        CAST(COALESCE(plan, '') AS TEXT),
        CAST(COALESCE(NULLIF(CAST(term_months AS TEXT), ''), '0') AS INTEGER),
@@ -4254,6 +4313,7 @@ SELECT CAST(COALESCE(NULLIF(CAST(id AS TEXT), ''), '0') AS INTEGER),
 		&r.Grupo,
 		&r.Vencimento,
 		&r.QtdParticipantes,
+		&r.ParcelasCalc,
 		&r.PercLance,
 		&dataAssembleia,
 		&r.Plano,
@@ -4297,7 +4357,11 @@ SELECT CAST(COALESCE(NULLIF(CAST(id AS TEXT), ''), '0') AS INTEGER),
        CAST(COALESCE(NULLIF(CAST(group_code AS TEXT), ''), '0') AS INTEGER),
        CAST(COALESCE(NULLIF(CAST(due_day AS TEXT), ''), '0') AS INTEGER),
        CAST(COALESCE(NULLIF(CAST(participants_count AS TEXT), ''), '0') AS INTEGER),
-       ` + s.bidPercentAvgMin6mExpr("active_groups.group_code") + `,
+       CAST(COALESCE(NULLIF(CAST(parcelas_calc AS TEXT), ''), '0') AS INTEGER),
+       CASE
+       WHEN TRIM(COALESCE(CAST(bid_percent_calc AS TEXT), '')) = '' THEN NULL
+       ELSE CAST(REPLACE(CAST(bid_percent_calc AS TEXT), ',', '.') AS REAL)
+       END,
        CAST(COALESCE(CAST(first_assembly_date AS TEXT), '') AS TEXT),
        CAST(COALESCE(plan, '') AS TEXT),
        CAST(COALESCE(NULLIF(CAST(term_months AS TEXT), ''), '0') AS INTEGER),
@@ -4322,6 +4386,7 @@ SELECT CAST(COALESCE(NULLIF(CAST(id AS TEXT), ''), '0') AS INTEGER),
 			&r.Grupo,
 			&r.Vencimento,
 			&r.QtdParticipantes,
+			&r.ParcelasCalc,
 			&r.PercLance,
 			&dataAssembleia,
 			&r.Plano,
@@ -5200,3 +5265,4 @@ func (s *Store) RestoreSQL(ctx context.Context, r io.Reader) error {
 
 	return tx.Commit()
 }
+

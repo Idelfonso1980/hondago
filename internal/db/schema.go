@@ -64,6 +64,7 @@ func legacySchemas() []tableSchema {
 				"cpf" VARCHAR(32),
 				"model_name" VARCHAR(255),
 				"licensed" VARCHAR(255),
+				"product_name" VARCHAR(255),
 				"installments" INTEGER,
 				"bid_percent" REAL,
 				"with_restriction" VARCHAR(16),
@@ -96,6 +97,7 @@ func legacySchemas() []tableSchema {
 				"cpf",
 				"model_name",
 				"licensed",
+				"product_name",
 				"installments",
 				"bid_percent",
 				"with_restriction",
@@ -137,6 +139,8 @@ func legacySchemas() []tableSchema {
 				"group_code" INTEGER NOT NULL,
 				"due_day" INTEGER NOT NULL,
 				"participants_count" INTEGER,
+				"parcelas_calc" INTEGER,
+				"bid_percent_calc" REAL,
 				"first_assembly_date" DATE,
 				"plan" VARCHAR(64),
 				"term_months" INTEGER,
@@ -151,6 +155,8 @@ func legacySchemas() []tableSchema {
 				"group_code",
 				"due_day",
 				"participants_count",
+				"parcelas_calc",
+				"bid_percent_calc",
 				"first_assembly_date",
 				"plan",
 				"term_months",
@@ -444,6 +450,7 @@ func (s *Store) ensurePostgresSchemaBootstrap(ctx context.Context) error {
 			cpf VARCHAR(32),
 			model_name VARCHAR(255),
 			licensed VARCHAR(255),
+			product_name VARCHAR(255),
 			installments INTEGER,
 			bid_percent DOUBLE PRECISION,
 			with_restriction VARCHAR(16),
@@ -506,6 +513,8 @@ func (s *Store) ensurePostgresSchemaBootstrap(ctx context.Context) error {
 			group_code INTEGER NOT NULL,
 			due_day INTEGER NOT NULL,
 			participants_count INTEGER,
+			parcelas_calc INTEGER,
+			bid_percent_calc DOUBLE PRECISION,
 			first_assembly_date DATE,
 			plan VARCHAR(64),
 			term_months INTEGER,
@@ -579,6 +588,9 @@ func (s *Store) ensurePostgresSchemaBootstrap(ctx context.Context) error {
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS temp_password_issued_at TIMESTAMP`,
 		`ALTER TABLE requests ADD COLUMN IF NOT EXISTS installments_served INTEGER`,
 		`ALTER TABLE requests ADD COLUMN IF NOT EXISTS bid_percent_served DOUBLE PRECISION`,
+		`ALTER TABLE requests ADD COLUMN IF NOT EXISTS product_name VARCHAR(255)`,
+		`ALTER TABLE active_groups ADD COLUMN IF NOT EXISTS parcelas_calc INTEGER`,
+		`ALTER TABLE active_groups ADD COLUMN IF NOT EXISTS bid_percent_calc DOUBLE PRECISION`,
 		`ALTER TABLE role_permissions DROP CONSTRAINT IF EXISTS fk_role_permissions_role`,
 		`ALTER TABLE role_permissions ADD CONSTRAINT fk_role_permissions_role FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE`,
 		`ALTER TABLE api_accounts DROP CONSTRAINT IF EXISTS fk_api_accounts_user`,
@@ -609,6 +621,8 @@ func (s *Store) ensurePostgresSchemaBootstrap(ctx context.Context) error {
 		`CREATE INDEX IF NOT EXISTS idx_gruposativos_grupo ON active_groups(group_code)`,
 		`CREATE INDEX IF NOT EXISTS idx_gruposativos_vencimento ON active_groups(due_day)`,
 		`CREATE INDEX IF NOT EXISTS idx_gruposativos_status ON active_groups(status)`,
+		`CREATE INDEX IF NOT EXISTS idx_gruposativos_parcelas_calc ON active_groups(parcelas_calc)`,
+		`CREATE INDEX IF NOT EXISTS idx_gruposativos_bid_percent_calc ON active_groups(bid_percent_calc)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_feriados_data_tipo ON holidays(holiday_date, holiday_type)`,
 		`CREATE INDEX IF NOT EXISTS idx_feriados_ativo ON holidays(is_active)`,
 		`CREATE INDEX IF NOT EXISTS idx_msgnotif_status_created ON manual_notifications(status, created_at)`,
@@ -636,7 +650,7 @@ func (s *Store) ensurePostgresSchemaBootstrap(ctx context.Context) error {
 			(1,'nav:dashboard'), (1,'nav:reservas'), (1,'nav:monitor'), (1,'nav:logs'), (1,'nav:config'),
 			(1,'monitor:read'),
 			(1,'reservas:home'), (1,'reservas:solicitacoes'), (1,'reservas:minhas'), (1,'reservas:solicitar'), (1,'reservas:reservadas'), (1,'reservas:mensagens'), (1,'reservas:config'),
-			(1,'config:users'), (1,'config:appusers'), (1,'config:rbac'), (1,'config:audit'), (1,'config:database'), (1,'config:password_policy'), (1,'config:idsgrupos'), (1,'config:active_groups'), (1,'config:assemblies'), (1,'config:models'), (1,'config:produtos')
+			(1,'config:users'), (1,'config:appusers'), (1,'config:rbac'), (1,'config:audit'), (1,'config:database'), (1,'config:password_policy'), (1,'config:idsgrupos'), (1,'config:active_groups'), (1,'config:assemblies'), (1,'config:assemblies_import_text'), (1,'config:models'), (1,'config:produtos')
 		ON CONFLICT DO NOTHING`,
 	}
 	for _, stmt := range stmts {
@@ -669,7 +683,7 @@ func (s *Store) ensurePostgresDefaultRolePermissions(ctx context.Context) error 
 		"configs:manage", "logs:read", "audit:view", "monitor:read",
 		"nav:dashboard", "nav:reservas", "nav:monitor", "nav:logs", "nav:config",
 		"reservas:home", "reservas:solicitacoes", "reservas:minhas", "reservas:solicitar", "reservas:reservadas", "reservas:mensagens", "reservas:config",
-		"config:users", "config:appusers", "config:audit", "config:idsgrupos", "config:active_groups", "config:assemblies", "config:models", "config:produtos",
+		"config:users", "config:appusers", "config:audit", "config:idsgrupos", "config:active_groups", "config:assemblies", "config:assemblies_import_text", "config:models", "config:produtos",
 	}
 	seedRolePermsIfEmpty := func(roleID int64, perms []string) error {
 		var count int64
@@ -833,6 +847,12 @@ func (s *Store) ensureOperationalIndexes(ctx context.Context) error {
 	if _, err := s.DB.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_gruposativos_status ON active_groups(status)`); err != nil {
 		return fmt.Errorf("create idx_gruposativos_status: %w", err)
 	}
+	if _, err := s.DB.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_gruposativos_parcelas_calc ON active_groups(parcelas_calc)`); err != nil {
+		return fmt.Errorf("create idx_gruposativos_parcelas_calc: %w", err)
+	}
+	if _, err := s.DB.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_gruposativos_bid_percent_calc ON active_groups(bid_percent_calc)`); err != nil {
+		return fmt.Errorf("create idx_gruposativos_bid_percent_calc: %w", err)
+	}
 	if _, err := s.DB.ExecContext(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS idx_feriados_data_tipo ON holidays(holiday_date, holiday_type)`); err != nil {
 		return fmt.Errorf("create idx_feriados_data_tipo: %w", err)
 	}
@@ -972,7 +992,7 @@ func (s *Store) ensureRolesSeed(ctx context.Context) error {
 		"nav:dashboard", "nav:reservas", "nav:monitor", "nav:logs", "nav:config",
 		"monitor:read",
 		"reservas:home", "reservas:solicitacoes", "reservas:minhas", "reservas:solicitar", "reservas:reservadas", "reservas:mensagens", "reservas:config",
-		"config:users", "config:appusers", "config:rbac", "config:audit", "config:database", "config:password_policy", "config:idsgrupos", "config:active_groups", "config:assemblies", "config:models", "config:produtos",
+		"config:users", "config:appusers", "config:rbac", "config:audit", "config:database", "config:password_policy", "config:idsgrupos", "config:active_groups", "config:assemblies", "config:assemblies_import_text", "config:models", "config:produtos",
 	}
 	for _, p := range adminPerms {
 		if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO role_permissions (role_id, permission_key) VALUES (1, ?)", p); err != nil {
@@ -992,7 +1012,7 @@ func (s *Store) ensureRolesSeed(ctx context.Context) error {
 		"configs:manage", "logs:read", "audit:view", "monitor:read",
 		"nav:dashboard", "nav:reservas", "nav:monitor", "nav:logs", "nav:config",
 		"reservas:home", "reservas:solicitacoes", "reservas:minhas", "reservas:solicitar", "reservas:reservadas", "reservas:mensagens", "reservas:config",
-		"config:users", "config:appusers", "config:audit", "config:idsgrupos", "config:active_groups", "config:assemblies", "config:models", "config:produtos",
+		"config:users", "config:appusers", "config:audit", "config:idsgrupos", "config:active_groups", "config:assemblies", "config:assemblies_import_text", "config:models", "config:produtos",
 	}
 	seedRolePermsIfEmpty := func(roleID int64, perms []string) error {
 		var count int64

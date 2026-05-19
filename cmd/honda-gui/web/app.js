@@ -1,11 +1,11 @@
 ﻿const fields = ["config_path","reservar_modo","model_name","produto","group_code","cpf","cod_empre","due_day","requested_quota_id","federal_lottery","acrescimo_decrescimo","group_type","limit","cooldown_user_ms","worker_count_go","request_timeout_ms"];
     const dbFields = ["database_path","api_base_url"];
     const authFields = ["auth_id","auth_cpf","auth_cod_empresa","auth_cod_usuario","auth_cod_concessionaria","auth_senha","auth_token","auth_token_b3","auth_last_request","auth_cooldown_until","auth_blocked_until","auth_in_flight","auth_error_401_count","auth_error_429_count","auth_priority_score"];
-    const solicitacaoFields = ["sol_id","sol_data_hora_solicitacao","sol_filial","sol_vendedor","sol_cpf","sol_modelo","sol_plano","sol_qtde_parcelas","sol_perc_lance","sol_com_restricao","sol_grupo","sol_observacao","sol_id_cota","sol_grupo_atendido","sol_qtde_parcelas_atendidas","sol_perc_lance_atendido","sol_cota_r_d","sol_data_hora_atendimento","sol_situacao","sol_lance_contemplacao"];
+    const solicitacaoFields = ["sol_id","sol_data_hora_solicitacao","sol_filial","sol_vendedor","sol_cpf","sol_modelo","sol_plano","sol_produto","sol_qtde_parcelas","sol_perc_lance","sol_com_restricao","sol_grupo","sol_observacao","sol_id_cota","sol_grupo_atendido","sol_qtde_parcelas_atendidas","sol_perc_lance_atendido","sol_cota_r_d","sol_data_hora_atendimento","sol_situacao","sol_lance_contemplacao"];
     const idsgFields = ["idsg_id","idsg_id_grupo","idsg_produto","idsg_vencimento","idsg_prazo","idsg_tipo","idsg_grupo","idsg_cota","idsg_r","idsg_d","idsg_parcelas_calc","idsg_booked","idsg_created_at","idsg_participantes","idsg_failed"];
     const gruposAtivosFields = ["ga_id","ga_grupo","ga_vencimento","ga_qtd_participantes","ga_data_assembleia_inaugural","ga_plano","ga_prazo","ga_tipo_grupo","ga_modelos","ga_status","ga_created_at","ga_updated_at"];
     const appUserFields = ["appuser_id","appuser_username","appuser_display_name","appuser_phone","appuser_cpf","appuser_filial","appuser_email","appuser_role","appuser_supervisor","appuser_manager","appuser_is_active","appuser_password","appuser_failed_login_attempts","appuser_locked_until","appuser_last_login_at","appuser_updated_at","appuser_created_at"];
-    const solicitarFields = ["request_filial","request_data_hora_solicitacao","request_vendedor","request_cpf","request_modelo","request_plano","request_qtde_parcelas","request_perc_lance","request_com_restricao","request_grupo","request_observacao"];
+    const solicitarFields = ["request_filial","request_data_hora_solicitacao","request_vendedor","request_cpf","request_modelo","request_plano","request_produto","request_qtde_parcelas","request_perc_lance","request_com_restricao","request_grupo","request_observacao"];
     const modeloFields = ["modelo_id","modelo_idmodelo","modelo_nome","modelo_status"];
     const produtoFields = ["produto_id","produto_idproduto","produto_nome","produto_status"];
     const assembleiaFields = ["assembleia_id","assembleia_cota_r_d","assembleia_data_contemplacao","assembleia_tipo_contemplacao","assembleia_data_desclassificao","assembleia_cliente","assembleia_perc_lance","assembleia_vendedor","assembleia_grupo","assembleia_loteria_federal","assembleia_grupo_cota_r_d"];
@@ -1174,6 +1174,7 @@
 
         clearSolicitarCotaForm();
         loadSolicitarModeloOptions();
+        loadSolicitarProdutoOptions();
       }
     }
 
@@ -2157,6 +2158,7 @@
       if (onclick.includes("deleteSelectedReservedCotas") || onclick.includes("deleteReservedCota") || onclick.includes("deleteSelectedIDsGrupos") || onclick.includes("deleteIDsGrupo") || onclick.includes("deleteModelo") || onclick.includes("deleteProduto") || onclick.includes("deleteAssembleia")) return "clear";
       if (onclick.includes("openIDsGrupoEditModal")) return "edit";
       if (onclick.includes("createDatabaseTables")) return "database";
+      if (onclick.includes("recalculateParcelasCalc") || onclick.includes("recalculatePercLanceCalc")) return "database";
       if (onclick.includes("clearDatabaseTables")) return "clear";
       if (onclick.includes("dropDatabaseTables")) return "clear";
       if (onclick.includes("loadConfig")) return "refresh";
@@ -2269,6 +2271,7 @@
       document.getElementById("sol_cpf").value = data.cpf || "";
       document.getElementById("sol_modelo").value = data.model_name || "";
       document.getElementById("sol_plano").value = normalizeYesNoValue(data.plan || "");
+      document.getElementById("sol_produto").value = data.product_name || "";
       document.getElementById("sol_qtde_parcelas").value = data.installments || "";
       document.getElementById("sol_perc_lance").value = formatPercentInputValue(data.bid_percent || "");
       document.getElementById("sol_com_restricao").value = normalizeYesNoValue(data.with_restriction || "");
@@ -2295,6 +2298,7 @@
         cpf: (document.getElementById("sol_cpf").value || "").replace(/\D/g, ""),
         model_name: document.getElementById("sol_modelo").value || "",
         plan: document.getElementById("sol_plano").value || "",
+        product_name: document.getElementById("sol_produto").value || "",
         installments: document.getElementById("sol_qtde_parcelas").value || "",
         bid_percent: percentInputToRaw(document.getElementById("sol_perc_lance").value || ""),
         with_restriction: document.getElementById("sol_com_restricao").value || "",
@@ -2547,45 +2551,52 @@
       const grupoEl = document.getElementById("sol_grupo");
       const parcelasEl = document.getElementById("sol_qtde_parcelas");
       const percEl = document.getElementById("sol_perc_lance");
-      if (!grupoEl || !parcelasEl || !percEl) return;
+      const produtoEl = document.getElementById("sol_produto");
+      if (!grupoEl || !parcelasEl || !percEl || !produtoEl) return;
       const raw = String(grupoEl.value || "").trim();
       const onlyDigits = raw.replace(/\D+/g, "");
       if (!onlyDigits) {
         if (forceLookup === true) {
           parcelasEl.value = "";
           percEl.value = "";
+          produtoEl.value = "";
         }
         return;
       }
       if (!forceLookup && onlyDigits.length < 4) return;
       const currentToken = ++solicitacaoGrupoParcelasFetchToken;
       try {
-        const [parcelasResult, percResult] = await Promise.allSettled([
-          fetch("/api/active_groups/parcelas?group_code=" + encodeURIComponent(onlyDigits)),
-          fetch("/api/assembleias/perclance?group_code=" + encodeURIComponent(onlyDigits))
+        const [agResult] = await Promise.allSettled([
+          fetch("/api/active_groups/get?group_code=" + encodeURIComponent(onlyDigits))
         ]);
         if (currentToken !== solicitacaoGrupoParcelasFetchToken) return;
 
-        if (parcelasResult.status === "fulfilled") {
-          const parcelasRes = parcelasResult.value;
+        if (agResult.status === "fulfilled") {
+          const agRes = agResult.value;
           let data = null;
-          try { data = await parcelasRes.json(); } catch (_) {}
-          if (parcelasRes.ok && data && data.ok !== false && data.found) {
-            const parcelas = Number(data.parcelas || 0);
+          try { data = await agRes.json(); } catch (_) {}
+          if (agRes.ok && data) {
+            const parcelas = Number(data.parcelas_calculadas || 0);
             parcelasEl.value = parcelas > 0 ? String(parcelas) : "";
-          } else if (!parcelasRes.ok && data && data.message) {
-            setStatus("Parcelas: " + data.message);
-          }
-        }
-
-        if (percResult.status === "fulfilled") {
-          const percRes = percResult.value;
-          let percData = null;
-          try { percData = await percRes.json(); } catch (_) {}
-          if (percRes.ok && percData && percData.ok !== false && percData.found) {
-            percEl.value = formatPercentInputValue(percData.bid_percent || "");
-          } else if (!percRes.ok && percData && percData.message) {
-            setStatus("Perc. lance: " + percData.message);
+            percEl.value = formatPercentInputValue(data.bid_percent || "");
+            const rawProduto = String(data.plan || "").trim();
+            if (rawProduto) {
+              let matched = false;
+              for (const opt of Array.from(produtoEl.options || [])) {
+                const optVal = String(opt.value || "").trim();
+                if (!optVal) continue;
+                if (optVal.toLowerCase() === rawProduto.toLowerCase()) {
+                  produtoEl.value = optVal;
+                  matched = true;
+                  break;
+                }
+              }
+              if (!matched) produtoEl.value = "";
+            } else {
+              produtoEl.value = "";
+            }
+          } else if (!agRes.ok && data && data.message) {
+            setStatus("Grupo: " + data.message);
           }
         }
       } catch (_) {
@@ -2602,6 +2613,7 @@
         cpf: (document.getElementById("request_cpf").value || "").replace(/\D/g, ""),
         model_name: document.getElementById("request_modelo").value || "",
         plan: document.getElementById("request_plano").value || "",
+        product_name: document.getElementById("request_produto").value || "",
         installments: document.getElementById("request_qtde_parcelas").value || "",
         bid_percent: percentInputToRaw(document.getElementById("request_perc_lance").value || ""),
         with_restriction: document.getElementById("request_com_restricao").value || "",
@@ -2634,6 +2646,10 @@
         setStatus("Preencha o campo Modelo");
         return;
       }
+      if (!String(payload.product_name || "").trim()) {
+        setStatus("Preencha o campo Produto");
+        return;
+      }
       setStatus("Salvando solicitaÃ§Ã£o");
       const res = await fetch("/api/solicitacoes/save", {
         method: "POST",
@@ -2656,13 +2672,63 @@
       setStatus(data.message || "Solicitação enviada com sucesso");
       clearSolicitarCotaForm();
       // Garantia de limpeza dos campos variaveis no form apos envio.
-      const resetIds = ["request_modelo","request_grupo","request_qtde_parcelas","request_perc_lance","request_observacao"];
+      const resetIds = ["request_modelo","request_produto","request_grupo","request_qtde_parcelas","request_perc_lance","request_observacao"];
       for (let i = 0; i < resetIds.length; i++) {
         const el = document.getElementById(resetIds[i]);
         if (el) el.value = "";
       }
       if (normalizeRoleValue(currentUserRole) !== "vendedor") {
         await searchSolicitacoes();
+      }
+    }
+
+    async function loadSolicitarProdutoOptions(selected, targetId){
+      const select = document.getElementById(targetId || "request_produto");
+      if (!select) return;
+      const selectedValue = String(selected !== undefined ? selected : (select.value || ""));
+      try {
+        const res = await fetch("/api/produtos?q=");
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.ok === false) {
+          setStatus((data && data.message) ? data.message : "Falha ao carregar produtos");
+          return;
+        }
+        const seen = new Set();
+        const nomes = [];
+        const apiByName = new Map();
+        const items = Array.isArray(data.items) ? data.items : [];
+        for (const item of items) {
+          const status = String((item && item.status) || "").trim().toLowerCase();
+          if (status && status !== "ativo") continue;
+          const nome = String((item && (item.produto || item.product_name)) || "").trim();
+          if (!nome) continue;
+          const key = nome.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          nomes.push(nome);
+          const apiID = String((item && (item.id_produto || item.product_api_id)) || "").trim();
+          if (apiID) apiByName.set(key, apiID);
+        }
+        nomes.sort((a, b) => String(a).localeCompare(String(b)));
+
+        select.innerHTML = "";
+        select.appendChild(new Option("Selecione o produto", ""));
+        for (const nome of nomes) {
+          const opt = new Option(nome, nome);
+          const apiID = apiByName.get(String(nome).toLowerCase());
+          if (apiID) opt.dataset.apiId = apiID;
+          select.appendChild(opt);
+        }
+
+        if (selectedValue) {
+          const exists = nomes.some((n) => String(n).toLowerCase() === selectedValue.toLowerCase());
+          if (!exists) select.appendChild(new Option(selectedValue, selectedValue));
+          select.value = selectedValue;
+        } else {
+          select.value = "";
+        }
+      } catch (_) {
+        setStatus("Falha ao carregar produtos");
       }
     }
 
@@ -2766,39 +2832,38 @@
       console.log("[MFA-Group] Buscando dados para grupo:", code);
       setStatus("Validando grupo...");
       try {
-        const res = await fetch("/api/available_group_ids/check?code=" + encodeURIComponent(code));
-        const data = await res.json();
-        console.log("[MFA-Group] Resposta:", data);
-
-        if (res.ok && data.ok !== false && data.found && data.item) {
-          const item = data.item;
+        const agRes = await fetch("/api/active_groups/get?group_code=" + encodeURIComponent(code));
+        const agData = await agRes.json().catch(() => ({}));
+        if (agRes.ok && agData && typeof agData === "object") {
           const installmentsEl = document.getElementById(prefix + "_qtde_parcelas");
-          if (installmentsEl) installmentsEl.value = "";
-
-          // Prioriza o mesmo calculo exibido em Grupos Ativos.
-          // Fallback para prazo legado apenas se o endpoint calculado nao retornar.
-          try {
-            const parcelasRes = await fetch("/api/active_groups/parcelas?group_code=" + encodeURIComponent(code));
-            const parcelasData = await parcelasRes.json();
-            if (parcelasRes.ok && parcelasData && parcelasData.ok !== false && parcelasData.found) {
-              const parcelasCalc = Number(parcelasData.parcelas || 0);
-              if (installmentsEl) installmentsEl.value = parcelasCalc > 0 ? String(parcelasCalc) : "";
-            } else if (installmentsEl) {
-              installmentsEl.value = item.Prazo || "";
-            }
-          } catch (_) {
-            if (installmentsEl) installmentsEl.value = item.Prazo || "";
+          if (installmentsEl) {
+            const parcelas = Number(agData.parcelas_calculadas || 0);
+            installmentsEl.value = parcelas > 0 ? String(parcelas) : "";
           }
-          
-          // Novo: Buscar percentual de lance da assembleia para este grupo
+          const percEl = document.getElementById(prefix + "_perc_lance");
+          if (percEl) percEl.value = formatPercentInputValue(agData.bid_percent || "");
+
           try {
-              const pRes = await fetch("/api/assembleias/perclance?group_code=" + encodeURIComponent(code));
-              const pData = await pRes.json();
-              if (pRes.ok && pData && pData.ok !== false && pData.found) {
-                  const percEl = document.getElementById(prefix + "_perc_lance");
-                  if (percEl) percEl.value = formatPercentInputValue(pData.bid_percent || "");
+            const produtoEl = document.getElementById(prefix + "_produto");
+            if (produtoEl) {
+              const rawProduto = String(agData.plan || "").trim();
+              if (rawProduto) {
+                let matched = false;
+                for (const opt of Array.from(produtoEl.options || [])) {
+                  const optVal = String(opt.value || "").trim();
+                  if (!optVal) continue;
+                  if (optVal.toLowerCase() === rawProduto.toLowerCase()) {
+                    produtoEl.value = optVal;
+                    matched = true;
+                    break;
+                  }
+                }
+                if (!matched) produtoEl.value = "";
+              } else {
+                produtoEl.value = "";
               }
-          } catch(e) { console.error("Erro ao buscar percentual de lance:", e); }
+            }
+          } catch (_) {}
 
           setStatus("Dados do grupo carregados");
           console.log("[MFA-Group] Sucesso para o grupo:", code);
@@ -3012,6 +3077,7 @@
       const t = document.getElementById("solicitacaoModalTitle");
       if (t) t.textContent = "Nova SolicitaÃ§Ã£o";
       loadSolicitarModeloOptions("", "sol_modelo", "Selecione o modelo");
+      loadSolicitarProdutoOptions("", "sol_produto");
       document.getElementById("solicitacaoEditModal").classList.remove("hidden");
     }
 
@@ -3031,6 +3097,7 @@
         return;
       }
       await loadSolicitarModeloOptions(data.model_name || "", "sol_modelo", "Selecione o modelo");
+      await loadSolicitarProdutoOptions(data.product_name || "", "sol_produto");
       fillSolicitacaoForm(data);
       syncSolicitacaoAtendidoDefaults();
       document.getElementById("solicitacaoEditModal").classList.remove("hidden");
@@ -3199,6 +3266,26 @@
 
     async function saveSolicitacao(){
       const payload = gatherSolicitacaoForm();
+      if (!String(payload.branch || "").trim()) {
+        setStatus("Preencha o campo filial");
+        return;
+      }
+      if (!String(payload.seller_name || "").trim()) {
+        setStatus("Preencha o campo Vendedor");
+        return;
+      }
+      if (!String(payload.cpf || "").trim()) {
+        setStatus("Preencha o campo CPF");
+        return;
+      }
+      if (!String(payload.model_name || "").trim()) {
+        setStatus("Preencha o campo Modelo");
+        return;
+      }
+      if (!String(payload.product_name || "").trim()) {
+        setStatus("Preencha o campo Produto");
+        return;
+      }
       setStatus("Salvando solicitaÃ§Ã£o");
       const res = await fetch("/api/solicitacoes/save", {
         method: "POST",
@@ -4132,7 +4219,7 @@
           "<td><div class=\"auth-actions\">" +
             "<button type=\"button\" class=\"auth-action-btn\" title=\"Editar\" aria-label=\"Editar\" onclick=\"openGrupoAtivoEditModal(" + String(id) + ")\">" + authActionIcon("edit") + "</button>" +
             "<button type=\"button\" class=\"auth-action-btn auth-action-success\" title=\"Adicionar Assembleia\" aria-label=\"Adicionar Assembleia\" onclick=\"openAssembleiaCreateModalFromGroup(" + String(g.group_code || 0) + ")\">" + authActionIcon("add") + "</button>" +
-            "<button type=\"button\" class=\"auth-action-btn\" title=\"Importar Assembleia (Texto)\" aria-label=\"Importar Assembleia (Texto)\" onclick=\"openGaAssembleiasImportModal(" + String(g.group_code || 0) + ")\">" + authActionIcon("logs") + "</button>" +
+            (hasPermission("config:assemblies_import_text") ? ("<button type=\"button\" class=\"auth-action-btn\" title=\"Importar Assembleia (Texto)\" aria-label=\"Importar Assembleia (Texto)\" onclick=\"openGaAssembleiasImportModal(" + String(g.group_code || 0) + ")\">" + authActionIcon("logs") + "</button>") : "") +
             "<button type=\"button\" class=\"auth-action-btn auth-action-danger\" title=\"Excluir\" aria-label=\"Excluir\" onclick=\"deleteGrupoAtivo(" + String(id) + ")\">" + authActionIcon("delete") + "</button>" +
           "</div></td>" +
         "</tr>";
@@ -4765,6 +4852,12 @@
     async function createDatabaseTables(){
       await runDatabaseAction("/api/db/tables/create", "Criando/atualizando tabelas", "Tabelas criadas/atualizadas");
     }
+    async function recalculateParcelasCalc(){
+      await runDatabaseAction("/api/db/active_groups/recalc-parcelas", "Recalculando parcelas", "Parcelas recalculadas");
+    }
+    async function recalculatePercLanceCalc(){
+      await runDatabaseAction("/api/db/active_groups/recalc-lance", "Recalculando perc. lance", "Perc. lance recalculado");
+    }
 
     async function clearDatabaseTables(){
       if (!(await confirmDangerModal("Confirma excluir todos os dados das tabelas legadas"))) return;
@@ -4864,6 +4957,7 @@
     async function searchGrupoSemelhante(){
       const groupEl = document.getElementById("sol_grupo_atendido") || document.getElementById("sol_grupo");
       const code = String((groupEl && groupEl.value) || "").replace(/\D/g, "");
+      const productName = String(document.getElementById("sol_produto")?.value || "").trim();
       const installments = String((
         document.getElementById("sol_qtde_parcelas_atendidas")?.value ||
         document.getElementById("sol_qtde_parcelas_atendida")?.value ||
@@ -4882,15 +4976,29 @@
         url = "/api/active_groups/similares?group_code=" + encodeURIComponent(code);
       } else {
         modeByGroup = false;
-        if (!installments || !bidRaw) {
-          setStatus("Sem grupo: preencha Qtde Parcelas e Perc. Lance");
+        if (!productName || !installments || !bidRaw) {
+          setStatus("Sem grupo: preencha Produto, Qtde Parcelas e Perc. Lance");
           renderGrupoSimilarTable([]);
           return;
         }
-        url = "/api/active_groups/similares?installments=" + encodeURIComponent(installments) + "&bid_percent=" + encodeURIComponent(bidRaw);
+        url = "/api/active_groups/similares?product_name=" + encodeURIComponent(productName) + "&installments=" + encodeURIComponent(installments) + "&bid_percent=" + encodeURIComponent(bidRaw);
       }
       setStatus("Buscando grupos semelhantes");
-      const res = await fetch(url);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+      let res;
+      try {
+        res = await fetch(url, { signal: controller.signal });
+      } catch (err) {
+        if (err && (err.name === "AbortError" || String(err.message || "").toLowerCase().includes("abort"))) {
+          setStatus("Busca de semelhantes excedeu o tempo limite (12s). Refine os critérios.");
+          renderGrupoSimilarTable([]);
+          return;
+        }
+        throw err;
+      } finally {
+        clearTimeout(timeoutId);
+      }
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.ok === false) {
         setStatus(data.message || "Erro ao buscar grupos semelhantes");
@@ -4905,7 +5013,7 @@
           criteria.textContent = "Base " + String(code) + " - Tipo: " + String(base.group_type || "-") + ", Plano: " + String(base.plan || "-") + ", Vencimento: " + String(base.due_day || "-") + ", Parcelas: " + String(base.parcelas || "-");
           if (base.fallback_no_plan) criteria.textContent += " | fallback sem plano";
         } else {
-          criteria.textContent = "Base sem grupo - Parcelas: " + String(base.parcelas || installments || "-") + ", Lance aprox.: " + escapeHtml(formatPercent(String(base.bid_percent || bidRaw || ""))) + " (\u00b1" + String(base.tolerance || "2.0") + ")";
+          criteria.textContent = "Base sem grupo - Plano: " + String(base.plan || productName || "-") + ", Parcelas: " + String(base.parcelas || installments || "-") + ", Lance aprox.: " + escapeHtml(formatPercent(String(base.bid_percent || bidRaw || ""))) + " (\u00b1" + String(base.tolerance || "2.0") + ")";
         }
       }
       renderGrupoSimilarTable(data.items || []);
@@ -6085,6 +6193,9 @@ function applyRBAC() {
     document.querySelectorAll('button[onclick*="createDatabaseTables"]').forEach((b) => {
       b.style.display = hasPermission("db:tables:create") ? "" : "none";
     });
+    document.querySelectorAll('button[onclick*="recalculateParcelasCalc"],button[onclick*="recalculatePercLanceCalc"]').forEach((b) => {
+      b.style.display = hasPermission("config:database") ? "" : "none";
+    });
     const backupBtn = document.getElementById("db_backup_btn");
     if (backupBtn) backupBtn.style.display = hasPermission("db:backup") ? "" : "none";
     const restoreBtn = document.getElementById("db_restore_btn");
@@ -6162,6 +6273,7 @@ const permissionDescriptions = {
     "config:idsgrupos": "Acesso à configuração de IDs de grupos",
     "config:active_groups": "Acesso à configuração de grupos ativos",
     "config:assemblies": "Acesso à configuração de assembleias",
+    "config:assemblies_import_text": "Importar assembleias por texto (modal em Grupos Ativos)",
     "config:models": "Acesso à configuração de modelos",
     "config:produtos": "Acesso à configuração de produtos",
     "db:tables:create": "Atualizar/criar tabelas do banco",
